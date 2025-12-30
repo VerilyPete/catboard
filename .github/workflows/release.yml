@@ -63,8 +63,154 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev
 
+      - name: Import Apple certificate
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Skip if no certificate configured
+          if [ -z "${CERTIFICATE:-}" ]; then
+            echo "::warning::No APPLE_CERTIFICATE secret configured, skipping code signing"
+            echo "SIGNING_ENABLED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+
+          # Create and configure keychain
+          echo "Creating temporary keychain..."
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 900 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "Importing certificate..."
+          echo "$CERTIFICATE" | base64 --decode > "$CERT_PATH"
+
+          if ! security import "$CERT_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"; then
+            echo "::error::Failed to import certificate"
+            rm -f "$CERT_PATH"
+            exit 1
+          fi
+
+          # Immediately delete the certificate file
+          rm -f "$CERT_PATH"
+
+          # Configure for codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Verify certificate is available
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          # Export for subsequent steps
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+          echo "SIGNING_ENABLED=true" >> $GITHUB_ENV
+
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Sign macOS binaries
+        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+
+          # Find signing identity
+          IDENTITY=$(security find-identity -v -p codesigning "${{ env.KEYCHAIN_PATH }}" | \
+            grep "Developer ID Application" | head -1 | awk -F '"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            exit 1
+          fi
+
+          echo "Using identity: $IDENTITY"
+
+          # Sign binary with retry for timestamp server failures
+          BINARY_PATH="target/${{ matrix.target }}/release/catboard"
+          for i in {1..3}; do
+            echo "Signing attempt $i of 3..."
+            if codesign --force --deep --options runtime \
+              --sign "$IDENTITY" \
+              --timestamp \
+              "$BINARY_PATH"; then
+              echo "Binary signing succeeded"
+              break
+            elif [ $i -eq 3 ]; then
+              echo "::error::Signing failed after 3 attempts"
+              exit 1
+            fi
+            echo "Retry in 5 seconds..."
+            sleep 5
+          done
+
+          # Sign Quick Action workflow
+          echo "Signing Quick Action workflow..."
+          codesign --force --deep \
+            --sign "$IDENTITY" \
+            --timestamp \
+            "macos/Copy to Clipboard.workflow"
+
+          # Verify signatures
+          echo "=== Verifying binary signature ==="
+          codesign --verify --deep --strict --verbose=4 "$BINARY_PATH"
+
+          echo "=== Verifying Quick Action signature ==="
+          codesign --verify --deep --strict --verbose=4 "macos/Copy to Clipboard.workflow"
+
+          # Display signature info
+          echo "=== Binary signature details ==="
+          codesign --display --verbose=4 "$BINARY_PATH"
+
+          # Test Gatekeeper (may fail without notarization)
+          echo "=== Gatekeeper assessment ==="
+          spctl --assess --type execute --verbose=4 "$BINARY_PATH" || \
+            echo "::warning::Gatekeeper check failed (notarization may be required for full compliance)"
+
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true' && secrets.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          BINARY_PATH="target/${{ matrix.target }}/release/catboard"
+
+          # Create ZIP for notarization
+          echo "Creating ZIP for notarization..."
+          ditto -c -k "$BINARY_PATH" catboard.zip
+
+          # Submit and wait
+          echo "Submitting for notarization..."
+          xcrun notarytool submit catboard.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait \
+            --timeout 30m
+
+          # Staple (optional for CLI binaries, may not be supported)
+          echo "Attempting to staple..."
+          xcrun stapler staple "$BINARY_PATH" || \
+            echo "::notice::Stapling not supported for this binary type (this is normal for CLI tools)"
+
+          rm -f catboard.zip
+
+          # Final verification
+          echo "=== Final Gatekeeper assessment ==="
+          spctl --assess --type execute --verbose=4 "$BINARY_PATH"
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -79,20 +225,20 @@ jobs:
           if [ "${{ runner.os }}" == "macOS" ]; then
             cp -r "macos/Copy to Clipboard.workflow" "${ARCHIVE_NAME}/"
             cat > "${ARCHIVE_NAME}/INSTALL_MACOS.md" << 'INSTALL_EOF'
-          # macOS Installation
+# macOS Installation
 
-          1. Copy `catboard` to `/usr/local/bin/`:
-             ```
-             sudo cp catboard /usr/local/bin/
-             ```
+1. Copy `catboard` to `/usr/local/bin/`:
+   ```
+   sudo cp catboard /usr/local/bin/
+   ```
 
-          2. Install Finder Quick Action:
-             ```
-             cp -r "Copy to Clipboard.workflow" ~/Library/Services/
-             ```
+2. Install Finder Quick Action:
+   ```
+   cp -r "Copy to Clipboard.workflow" ~/Library/Services/
+   ```
 
-          3. Right-click any file in Finder to see "Copy to Clipboard" option.
-          INSTALL_EOF
+3. Right-click any file in Finder to see "Copy to Clipboard" option.
+INSTALL_EOF
           fi
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
@@ -116,6 +262,23 @@ jobs:
           name: catboard-${{ matrix.target }}
           path: ${{ env.ARCHIVE_NAME }}
           retention-days: 1
+
+      - name: Clean up keychain
+        if: runner.os == 'macOS' && always()
+        run: |
+          KEYCHAIN_PATH="${KEYCHAIN_PATH:-$RUNNER_TEMP/signing.keychain-db}"
+
+          # Delete keychain if it exists
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || \
+              echo "::warning::Failed to delete keychain"
+          fi
+
+          # Clean up any leftover certificate files
+          rm -f $RUNNER_TEMP/certificate.p12 2>/dev/null || true
+
+          # Reset to default keychain
+          security list-keychains -d user -s login.keychain 2>/dev/null || true
 
   release:
     name: Create Release
