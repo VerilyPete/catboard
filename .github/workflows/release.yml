@@ -227,15 +227,13 @@ jobs:
             cat > "${ARCHIVE_NAME}/INSTALL_MACOS.md" << 'INSTALL_EOF'
 # macOS Installation
 
-1. Copy `catboard` to `/usr/local/bin/`:
-   ```
+1. Copy catboard to /usr/local/bin/:
+
    sudo cp catboard /usr/local/bin/
-   ```
 
 2. Install Finder Quick Action:
-   ```
+
    cp -r "Copy to Clipboard.workflow" ~/Library/Services/
-   ```
 
 3. Right-click any file in Finder to see "Copy to Clipboard" option.
 INSTALL_EOF
