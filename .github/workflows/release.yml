@@ -228,11 +228,12 @@ jobs:
 
           rm -f catboard.zip
 
-          # Final verification (may fail for CLI binaries since stapling isn't supported,
-          # but Gatekeeper will verify online when users run the binary)
-          echo "=== Final Gatekeeper assessment ==="
-          spctl --assess --type execute --verbose=4 "$BINARY_PATH" || \
-            echo "::notice::spctl assessment failed (expected for unstapled CLI binaries - Gatekeeper will verify online)"
+          # Note: We skip the final spctl verification because:
+          # 1. CLI binaries can't be stapled (only .app bundles)
+          # 2. Without stapling, spctl will always report "Unnotarized Developer ID"
+          # 3. The notarization WAS accepted by Apple (see above)
+          # 4. Gatekeeper will verify the notarization online when users run the binary
+          echo "::notice::Notarization complete. Binary will pass Gatekeeper (verified online)."
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
