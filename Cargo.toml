@@ -1,0 +1,19 @@
+[package]
+name = "catboard"
+version = "0.1.0"
+edition = "2021"
+description = "Copy file contents to clipboard - CLI and Finder integration"
+license = "MIT"
+repository = "https://github.com/VerilyPete/catboard"
+keywords = ["clipboard", "copy", "cli", "macos", "finder"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+arboard = "3"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
