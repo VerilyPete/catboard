@@ -5,7 +5,7 @@ use std::io::Write;
 use tempfile::TempDir;
 
 fn catboard_cmd() -> Command {
-    Command::cargo_bin("catboard").unwrap()
+    Command::new(env!("CARGO_BIN_EXE_catboard"))
 }
 
 #[test]
