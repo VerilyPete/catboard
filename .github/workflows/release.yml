@@ -178,13 +178,19 @@ jobs:
             echo "::warning::Gatekeeper check failed (notarization may be required for full compliance)"
 
       - name: Notarize macOS binary
-        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true' && secrets.APPLE_ID != ''
+        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+
+          # Skip if notarization credentials not configured
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_ID_PASSWORD:-}" ]; then
+            echo "::notice::Notarization skipped - APPLE_ID or APPLE_ID_PASSWORD not configured"
+            exit 0
+          fi
 
           BINARY_PATH="target/${{ matrix.target }}/release/catboard"
 
