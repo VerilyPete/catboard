@@ -12,6 +12,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 arboard = "3"
 clap = { version = "4", features = ["derive"] }
+pdf_oxide = "0.2"
 thiserror = "2"
 
 [dev-dependencies]

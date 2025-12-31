@@ -1,4 +1,6 @@
 use crate::error::{CatboardError, Result};
+use pdf_oxide::PdfDocument;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
@@ -8,10 +10,14 @@ const BINARY_CHECK_SIZE: usize = 8192;
 
 /// Reads the contents of a file as a UTF-8 string.
 ///
+/// For PDF files, extracts text content using pdf_oxide.
+/// For other files, reads as plain text with binary detection.
+///
 /// # Errors
 /// - `FileNotFound` if the file doesn't exist
 /// - `PermissionDenied` if the file can't be accessed
 /// - `BinaryFile` if the file contains null bytes (likely binary)
+/// - `ExtractionError` if PDF text extraction fails
 /// - `IoError` for other I/O failures
 pub fn read_file_contents<P: AsRef<Path>>(path: P) -> Result<String> {
     let path = path.as_ref();
@@ -21,6 +27,57 @@ pub fn read_file_contents<P: AsRef<Path>>(path: P) -> Result<String> {
         return Err(CatboardError::FileNotFound(path.to_path_buf()));
     }
 
+    // Check file extension for special handling
+    let extension = path.extension().and_then(OsStr::to_str);
+
+    match extension {
+        Some("pdf") | Some("PDF") => extract_pdf_text(path),
+        _ => read_text_file(path),
+    }
+}
+
+/// Extract text from a PDF file
+fn extract_pdf_text(path: &Path) -> Result<String> {
+    let mut doc = PdfDocument::open(path).map_err(|e| CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })?;
+
+    let page_count = doc.page_count().map_err(|e| CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })?;
+    let mut all_text = String::new();
+
+    for page_num in 0..page_count {
+        match doc.extract_text(page_num) {
+            Ok(text) => {
+                if !all_text.is_empty() {
+                    all_text.push('\n');
+                }
+                all_text.push_str(&text);
+            }
+            Err(e) => {
+                return Err(CatboardError::ExtractionError {
+                    path: path.to_path_buf(),
+                    message: format!("Failed to extract page {}: {}", page_num + 1, e),
+                });
+            }
+        }
+    }
+
+    if all_text.is_empty() {
+        return Err(CatboardError::ExtractionError {
+            path: path.to_path_buf(),
+            message: "PDF contains no extractable text".to_string(),
+        });
+    }
+
+    Ok(all_text)
+}
+
+/// Read a plain text file with binary detection
+fn read_text_file(path: &Path) -> Result<String> {
     // Try to open the file
     let mut file = fs::File::open(path).map_err(|e| match e.kind() {
         io::ErrorKind::PermissionDenied => CatboardError::PermissionDenied(path.to_path_buf()),
@@ -157,5 +214,19 @@ mod tests {
 
         let result = read_file_contents(&file_path);
         assert!(matches!(result, Err(CatboardError::BinaryFile(_))));
+    }
+
+    #[test]
+    fn test_pdf_extension_detected() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("test.pdf");
+
+        // Create a fake PDF (will fail extraction but tests extension detection)
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(b"not a real pdf").unwrap();
+
+        let result = read_file_contents(&file_path);
+        // Should fail with ExtractionError, not BinaryFile
+        assert!(matches!(result, Err(CatboardError::ExtractionError { .. })));
     }
 }
