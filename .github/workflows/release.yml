@@ -280,37 +280,35 @@ jobs:
           if [ "${{ runner.os }}" == "macOS" ]; then
             cp "target/${{ matrix.target }}/release/catboard-ocr" "${ARCHIVE_NAME}/"
             cp -r "macos/Copy to Clipboard.workflow" "${ARCHIVE_NAME}/"
-            cat > "${ARCHIVE_NAME}/INSTALL_MACOS.md" << 'INSTALL_EOF'
-# macOS Installation
 
-## Quick Install
-
-```bash
-sudo cp catboard catboard-ocr /usr/local/bin/
-cp -r "Copy to Clipboard.workflow" ~/Library/Services/
-```
-
-## What's Included
-
-- **catboard** - Main CLI tool for copying file contents to clipboard
-- **catboard-ocr** - OCR helper using macOS Vision framework (for images and scanned PDFs)
-- **Copy to Clipboard.workflow** - Finder Quick Action for right-click integration
-
-## Features
-
-- Copy text files to clipboard
-- Extract text from PDFs
-- OCR images (PNG, JPG, TIFF, etc.) using macOS Vision
-- OCR scanned PDFs automatically
-
-## Usage
-
-```bash
-catboard file.txt        # Copy text file
-catboard document.pdf    # Extract PDF text
-catboard screenshot.png  # OCR image (requires catboard-ocr)
-```
-INSTALL_EOF
+            # Create install instructions (avoiding backticks in YAML)
+            {
+              echo "# macOS Installation"
+              echo ""
+              echo "## Quick Install"
+              echo ""
+              echo "    sudo cp catboard catboard-ocr /usr/local/bin/"
+              echo "    cp -r \"Copy to Clipboard.workflow\" ~/Library/Services/"
+              echo ""
+              echo "## What's Included"
+              echo ""
+              echo "- **catboard** - Main CLI tool for copying file contents to clipboard"
+              echo "- **catboard-ocr** - OCR helper using macOS Vision framework (for images and scanned PDFs)"
+              echo "- **Copy to Clipboard.workflow** - Finder Quick Action for right-click integration"
+              echo ""
+              echo "## Features"
+              echo ""
+              echo "- Copy text files to clipboard"
+              echo "- Extract text from PDFs"
+              echo "- OCR images (PNG, JPG, TIFF, etc.) using macOS Vision"
+              echo "- OCR scanned PDFs automatically"
+              echo ""
+              echo "## Usage"
+              echo ""
+              echo "    catboard file.txt        # Copy text file"
+              echo "    catboard document.pdf    # Extract PDF text"
+              echo "    catboard screenshot.png  # OCR image (requires catboard-ocr)"
+            } > "${ARCHIVE_NAME}/INSTALL_MACOS.md"
           fi
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
