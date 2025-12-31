@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
       - "[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      skip_release:
+        description: 'Build only (skip creating GitHub release)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -238,7 +244,11 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
           ARCHIVE_NAME="catboard-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/catboard" "${ARCHIVE_NAME}/"
@@ -261,7 +271,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
           ARCHIVE_NAME="catboard-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/catboard.exe" "${ARCHIVE_NAME}/"
@@ -296,6 +310,7 @@ jobs:
   release:
     name: Create Release
     needs: build
+    if: ${{ !inputs.skip_release }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
