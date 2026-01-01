@@ -100,8 +100,16 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Verify certificate is available
-          echo "Available signing identities:"
+          echo "=== Available signing identities ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          IDENTITY_COUNT=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -c "valid identities found" || echo "0")
+          if security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "0 valid identities found"; then
+            echo "::error::No valid signing identities found after import"
+            echo "::error::This usually means the .p12 file doesn't contain private keys"
+            echo "::error::Re-export from Keychain Access: select cert WITH disclosure triangle showing private key"
+            exit 1
+          fi
 
           # Export for subsequent steps
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
