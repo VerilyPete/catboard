@@ -481,3 +481,38 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew formula
+        if: ${{ !contains(github.ref, 'beta') && !contains(github.ref, 'alpha') && !contains(github.ref, 'rc') }}
+        run: |
+          set -euo pipefail
+
+          # Extract version from tag
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION_NUM=${VERSION#v}  # Remove 'v' prefix
+
+          # Calculate SHA256 of the tarball
+          TARBALL="release/catboard-${VERSION}-aarch64-apple-darwin.tar.gz"
+          if [ ! -f "$TARBALL" ]; then
+            echo "::error::Tarball not found: $TARBALL"
+            exit 1
+          fi
+          SHA256=$(sha256sum "$TARBALL" | cut -d' ' -f1)
+
+          echo "Version: $VERSION_NUM"
+          echo "SHA256: $SHA256"
+
+          # Update the formula (works for both placeholder and previous values)
+          sed -i "s/version \"[^\"]*\"/version \"${VERSION_NUM}\"/" Formula/catboard.rb
+          sed -i "s/sha256 \"[^\"]*\"/sha256 \"${SHA256}\"/" Formula/catboard.rb
+
+          # Show the updated formula
+          echo "=== Updated Formula ==="
+          cat Formula/catboard.rb
+
+          # Commit and push the updated formula
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/catboard.rb
+          git commit -m "chore: update Homebrew formula for ${VERSION}"
+          git push origin HEAD:main
