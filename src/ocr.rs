@@ -31,6 +31,8 @@ pub trait OcrEngine: Send + Sync {
 
 /// Real OCR engine using catboard-ocr helper
 pub struct SystemOcrEngine {
+    // Only used on macOS; stored on all platforms for API consistency
+    #[allow(dead_code)]
     helper_path: Option<PathBuf>,
 }
 
