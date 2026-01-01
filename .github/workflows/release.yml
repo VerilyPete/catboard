@@ -241,13 +241,15 @@ jobs:
           # 4. Gatekeeper will verify the notarization online when users run the binary
           echo "::notice::Notarization complete. Binary will pass Gatekeeper (verified online)."
 
-      - name: Package
+      - name: Package tarball
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
           else
             VERSION="dev-${GITHUB_SHA::7}"
           fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
           ARCHIVE_NAME="catboard-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/catboard" "${ARCHIVE_NAME}/"
@@ -287,11 +289,147 @@ jobs:
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
 
-      - name: Upload artifact
+      - name: Build macOS installer (.pkg)
+        if: runner.os == 'macOS'
+        env:
+          SIGNING_ENABLED: ${{ env.SIGNING_ENABLED }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+
+          # Create directory structure for pkg
+          PKG_ROOT=$(mktemp -d)
+          mkdir -p "${PKG_ROOT}/usr/local/bin"
+          mkdir -p "${PKG_ROOT}/Library/Services"
+
+          # Copy binaries
+          cp "target/${{ matrix.target }}/release/catboard" "${PKG_ROOT}/usr/local/bin/"
+          cp "target/${{ matrix.target }}/release/catboard-ocr" "${PKG_ROOT}/usr/local/bin/"
+
+          # Copy Quick Action workflow
+          cp -r "macos/Copy to Clipboard.workflow" "${PKG_ROOT}/Library/Services/"
+
+          # Create postinstall script to copy workflow to user's Services folder
+          SCRIPTS_DIR=$(mktemp -d)
+          cat > "${SCRIPTS_DIR}/postinstall" << 'POSTINSTALL'
+          #!/bin/bash
+          # Copy workflow to current user's Services folder
+          CURRENT_USER="${USER:-$(logname 2>/dev/null || echo '')}"
+          if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
+            USER_HOME=$(eval echo "~$CURRENT_USER")
+            USER_SERVICES="${USER_HOME}/Library/Services"
+            mkdir -p "$USER_SERVICES"
+            cp -r "/Library/Services/Copy to Clipboard.workflow" "$USER_SERVICES/" 2>/dev/null || true
+            chown -R "$CURRENT_USER" "$USER_SERVICES/Copy to Clipboard.workflow" 2>/dev/null || true
+          fi
+          exit 0
+          POSTINSTALL
+          chmod +x "${SCRIPTS_DIR}/postinstall"
+
+          # Build component package
+          pkgbuild \
+            --root "${PKG_ROOT}" \
+            --scripts "${SCRIPTS_DIR}" \
+            --identifier "com.verilypete.catboard" \
+            --version "${VERSION}" \
+            --install-location "/" \
+            "catboard-component.pkg"
+
+          # Create distribution XML
+          cat > distribution.xml << DIST
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="2">
+              <title>Catboard</title>
+              <organization>com.verilypete</organization>
+              <domains enable_localSystem="true"/>
+              <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+              <welcome file="welcome.txt"/>
+              <conclusion file="conclusion.txt"/>
+              <pkg-ref id="com.verilypete.catboard"/>
+              <choices-outline>
+                  <line choice="default">
+                      <line choice="com.verilypete.catboard"/>
+                  </line>
+              </choices-outline>
+              <choice id="default"/>
+              <choice id="com.verilypete.catboard" visible="false">
+                  <pkg-ref id="com.verilypete.catboard"/>
+              </choice>
+              <pkg-ref id="com.verilypete.catboard" version="${VERSION}">catboard-component.pkg</pkg-ref>
+          </installer-gui-script>
+          DIST
+
+          # Create resources
+          RESOURCES_DIR=$(mktemp -d)
+          cat > "${RESOURCES_DIR}/welcome.txt" << 'WELCOME'
+          Welcome to Catboard!
+
+          This installer will install:
+          • catboard - CLI tool for copying file contents to clipboard
+          • catboard-ocr - OCR helper for images and scanned PDFs
+          • Copy to Clipboard - Finder Quick Action
+
+          Features:
+          • Copy text files to clipboard
+          • Extract text from PDF documents
+          • OCR images and scanned PDFs using macOS Vision
+          WELCOME
+
+          cat > "${RESOURCES_DIR}/conclusion.txt" << 'CONCLUSION'
+          Catboard has been installed successfully!
+
+          Usage:
+            catboard file.txt        # Copy text file
+            catboard document.pdf    # Extract PDF text
+            catboard screenshot.png  # OCR image
+
+          The "Copy to Clipboard" Quick Action is now available.
+          Right-click any file in Finder to use it.
+          CONCLUSION
+
+          # Build product archive
+          PKG_NAME="catboard-${VERSION}-installer.pkg"
+          productbuild \
+            --distribution distribution.xml \
+            --resources "${RESOURCES_DIR}" \
+            --package-path . \
+            "${PKG_NAME}"
+
+          # Sign the installer if signing is enabled
+          if [ "${SIGNING_ENABLED:-false}" = "true" ]; then
+            echo "Signing installer package..."
+            INSTALLER_IDENTITY=$(security find-identity -v -p basic "${KEYCHAIN_PATH}" | \
+              grep "Developer ID Installer" | head -1 | awk -F '"' '{print $2}')
+
+            if [ -n "$INSTALLER_IDENTITY" ]; then
+              productsign --sign "$INSTALLER_IDENTITY" "${PKG_NAME}" "${PKG_NAME}.signed"
+              mv "${PKG_NAME}.signed" "${PKG_NAME}"
+              echo "Installer signed successfully"
+            else
+              echo "::warning::No Developer ID Installer certificate found, package unsigned"
+            fi
+          fi
+
+          echo "PKG_NAME=${PKG_NAME}" >> $GITHUB_ENV
+
+          # Cleanup
+          rm -rf "${PKG_ROOT}" "${SCRIPTS_DIR}" "${RESOURCES_DIR}"
+          rm -f catboard-component.pkg distribution.xml
+
+      - name: Upload tarball artifact
         uses: actions/upload-artifact@v6
         with:
           name: catboard-${{ matrix.target }}
           path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 1
+
+      - name: Upload pkg artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v6
+        with:
+          name: catboard-installer
+          path: ${{ env.PKG_NAME }}
           retention-days: 1
 
       - name: Clean up keychain
@@ -329,7 +467,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.pkg" \) -exec mv {} release/ \;
           cd release
           sha256sum * > checksums.txt
           cat checksums.txt
