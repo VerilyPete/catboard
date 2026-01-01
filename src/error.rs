@@ -13,6 +13,9 @@ pub enum CatboardError {
     #[error("Cannot read binary file: {0}")]
     BinaryFile(PathBuf),
 
+    #[error("Failed to extract text from '{path}': {message}")]
+    ExtractionError { path: PathBuf, message: String },
+
     #[error("Failed to read file '{path}': {source}")]
     IoError {
         path: PathBuf,
@@ -71,5 +74,17 @@ mod tests {
             source: io_err,
         };
         assert_eq!(err.to_string(), "Failed to read file 'data.txt': disk full");
+    }
+
+    #[test]
+    fn test_extraction_error_display() {
+        let err = CatboardError::ExtractionError {
+            path: PathBuf::from("document.pdf"),
+            message: "Invalid PDF format".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Failed to extract text from 'document.pdf': Invalid PDF format"
+        );
     }
 }

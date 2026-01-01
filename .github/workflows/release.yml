@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
       - "[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      skip_release:
+        description: 'Build only (skip creating GitHub release)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -120,6 +126,13 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Build Swift OCR helper
+        if: runner.os == 'macOS'
+        run: |
+          cd swift/catboard-ocr
+          swift build -c release
+          cp .build/release/catboard-ocr ../../target/${{ matrix.target }}/release/
+
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
         env:
@@ -145,27 +158,31 @@ jobs:
 
           echo "Using identity: $IDENTITY"
 
-          # Sign binary with retry for timestamp server failures
+          # Sign binaries with retry for timestamp server failures
           BINARY_PATH="target/${{ matrix.target }}/release/catboard"
-          ATTEMPT=1
-          MAX_ATTEMPTS=3
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            echo "Signing attempt $ATTEMPT of $MAX_ATTEMPTS..."
-            if codesign --force --deep --options runtime \
-              --sign "$IDENTITY" \
-              --timestamp \
-              "$BINARY_PATH"; then
-              echo "Binary signing succeeded"
-              break
-            else
-              if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-                echo "::error::Signing failed after $MAX_ATTEMPTS attempts"
-                exit 1
+          OCR_HELPER_PATH="target/${{ matrix.target }}/release/catboard-ocr"
+
+          for BINARY in "$BINARY_PATH" "$OCR_HELPER_PATH"; do
+            ATTEMPT=1
+            MAX_ATTEMPTS=3
+            while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+              echo "Signing $BINARY (attempt $ATTEMPT of $MAX_ATTEMPTS)..."
+              if codesign --force --deep --options runtime \
+                --sign "$IDENTITY" \
+                --timestamp \
+                "$BINARY"; then
+                echo "Signing succeeded: $BINARY"
+                break
+              else
+                if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+                  echo "::error::Signing failed after $MAX_ATTEMPTS attempts: $BINARY"
+                  exit 1
+                fi
+                echo "Retry in 5 seconds..."
+                sleep 5
+                ATTEMPT=$((ATTEMPT + 1))
               fi
-              echo "Retry in 5 seconds..."
-              sleep 5
-              ATTEMPT=$((ATTEMPT + 1))
-            fi
+            done
           done
 
           # Sign Quick Action workflow
@@ -176,15 +193,21 @@ jobs:
             "macos/Copy to Clipboard.workflow"
 
           # Verify signatures
-          echo "=== Verifying binary signature ==="
+          echo "=== Verifying catboard signature ==="
           codesign --verify --deep --strict --verbose=4 "$BINARY_PATH"
+
+          echo "=== Verifying catboard-ocr signature ==="
+          codesign --verify --deep --strict --verbose=4 "$OCR_HELPER_PATH"
 
           echo "=== Verifying Quick Action signature ==="
           codesign --verify --deep --strict --verbose=4 "macos/Copy to Clipboard.workflow"
 
           # Display signature info
-          echo "=== Binary signature details ==="
+          echo "=== catboard signature details ==="
           codesign --display --verbose=4 "$BINARY_PATH"
+
+          echo "=== catboard-ocr signature details ==="
+          codesign --display --verbose=4 "$OCR_HELPER_PATH"
 
           # Test Gatekeeper (may fail without notarization)
           echo "=== Gatekeeper assessment ==="
@@ -207,14 +230,17 @@ jobs:
           fi
 
           BINARY_PATH="target/${{ matrix.target }}/release/catboard"
+          OCR_HELPER_PATH="target/${{ matrix.target }}/release/catboard-ocr"
 
-          # Create ZIP for notarization
+          # Create ZIP for notarization (include both binaries)
           echo "Creating ZIP for notarization..."
-          ditto -c -k "$BINARY_PATH" catboard.zip
+          mkdir -p notarize-tmp
+          cp "$BINARY_PATH" "$OCR_HELPER_PATH" notarize-tmp/
+          ditto -c -k notarize-tmp catboard-binaries.zip
 
           # Submit and wait
           echo "Submitting for notarization..."
-          xcrun notarytool submit catboard.zip \
+          xcrun notarytool submit catboard-binaries.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$TEAM_ID" \
@@ -224,9 +250,11 @@ jobs:
           # Staple (optional for CLI binaries, may not be supported)
           echo "Attempting to staple..."
           xcrun stapler staple "$BINARY_PATH" || \
-            echo "::notice::Stapling not supported for this binary type (this is normal for CLI tools)"
+            echo "::notice::Stapling not supported for CLI binaries (this is normal)"
+          xcrun stapler staple "$OCR_HELPER_PATH" || \
+            echo "::notice::Stapling not supported for CLI binaries (this is normal)"
 
-          rm -f catboard.zip
+          rm -rf notarize-tmp catboard-binaries.zip
 
           # Note: We skip the final spctl verification because:
           # 1. CLI binaries can't be stapled (only .app bundles)
@@ -238,20 +266,49 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
           ARCHIVE_NAME="catboard-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/catboard" "${ARCHIVE_NAME}/"
           cp README.md LICENSE "${ARCHIVE_NAME}/"
 
-          # Include Quick Action for macOS
+          # Include macOS-specific files
           if [ "${{ runner.os }}" == "macOS" ]; then
+            cp "target/${{ matrix.target }}/release/catboard-ocr" "${ARCHIVE_NAME}/"
             cp -r "macos/Copy to Clipboard.workflow" "${ARCHIVE_NAME}/"
-            echo "# macOS Installation" > "${ARCHIVE_NAME}/INSTALL_MACOS.md"
-            echo "" >> "${ARCHIVE_NAME}/INSTALL_MACOS.md"
-            echo "1. sudo cp catboard /usr/local/bin/" >> "${ARCHIVE_NAME}/INSTALL_MACOS.md"
-            echo "2. cp -r Copy\ to\ Clipboard.workflow ~/Library/Services/" >> "${ARCHIVE_NAME}/INSTALL_MACOS.md"
-            echo "3. Right-click any file in Finder to see Copy to Clipboard option." >> "${ARCHIVE_NAME}/INSTALL_MACOS.md"
+
+            # Create install instructions (avoiding backticks in YAML)
+            {
+              echo "# macOS Installation"
+              echo ""
+              echo "## Quick Install"
+              echo ""
+              echo "    sudo cp catboard catboard-ocr /usr/local/bin/"
+              echo "    cp -r \"Copy to Clipboard.workflow\" ~/Library/Services/"
+              echo ""
+              echo "## What's Included"
+              echo ""
+              echo "- **catboard** - Main CLI tool for copying file contents to clipboard"
+              echo "- **catboard-ocr** - OCR helper using macOS Vision framework (for images and scanned PDFs)"
+              echo "- **Copy to Clipboard.workflow** - Finder Quick Action for right-click integration"
+              echo ""
+              echo "## Features"
+              echo ""
+              echo "- Copy text files to clipboard"
+              echo "- Extract text from PDFs"
+              echo "- OCR images (PNG, JPG, TIFF, etc.) using macOS Vision"
+              echo "- OCR scanned PDFs automatically"
+              echo ""
+              echo "## Usage"
+              echo ""
+              echo "    catboard file.txt        # Copy text file"
+              echo "    catboard document.pdf    # Extract PDF text"
+              echo "    catboard screenshot.png  # OCR image (requires catboard-ocr)"
+            } > "${ARCHIVE_NAME}/INSTALL_MACOS.md"
           fi
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
@@ -261,7 +318,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
           ARCHIVE_NAME="catboard-${VERSION}-${{ matrix.target }}"
           mkdir -p "${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/catboard.exe" "${ARCHIVE_NAME}/"
@@ -296,6 +357,7 @@ jobs:
   release:
     name: Create Release
     needs: build
+    if: ${{ !inputs.skip_release }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

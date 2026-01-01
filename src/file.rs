@@ -1,4 +1,7 @@
 use crate::error::{CatboardError, Result};
+use crate::ocr;
+use pdf_oxide::PdfDocument;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
@@ -6,12 +9,23 @@ use std::path::Path;
 /// Maximum bytes to check for binary content detection
 const BINARY_CHECK_SIZE: usize = 8192;
 
+/// Check if extension matches PDF (case-insensitive)
+fn is_pdf_extension(ext: Option<&str>) -> bool {
+    ext.map(|e| e.eq_ignore_ascii_case("pdf")).unwrap_or(false)
+}
+
 /// Reads the contents of a file as a UTF-8 string.
+///
+/// Supports multiple file types:
+/// - **Text files**: Read directly with binary detection
+/// - **PDF files**: Extract embedded text, with OCR fallback for scanned pages
+/// - **Image files**: OCR using macOS Vision framework (macOS only)
 ///
 /// # Errors
 /// - `FileNotFound` if the file doesn't exist
 /// - `PermissionDenied` if the file can't be accessed
 /// - `BinaryFile` if the file contains null bytes (likely binary)
+/// - `ExtractionError` if text extraction or OCR fails
 /// - `IoError` for other I/O failures
 pub fn read_file_contents<P: AsRef<Path>>(path: P) -> Result<String> {
     let path = path.as_ref();
@@ -21,6 +35,128 @@ pub fn read_file_contents<P: AsRef<Path>>(path: P) -> Result<String> {
         return Err(CatboardError::FileNotFound(path.to_path_buf()));
     }
 
+    // Check file extension for special handling
+    let extension = path.extension().and_then(OsStr::to_str);
+
+    if is_pdf_extension(extension) {
+        extract_pdf_text(path)
+    } else if ocr::is_image_file(path) {
+        ocr::extract_text_from_image(path)
+    } else {
+        read_text_file(path)
+    }
+}
+
+/// Extract text from a PDF file.
+///
+/// First attempts to extract embedded text. If the PDF appears to be scanned
+/// (no text but has images), falls back to OCR on macOS.
+fn extract_pdf_text(path: &Path) -> Result<String> {
+    let mut doc = PdfDocument::open(path).map_err(|e| CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })?;
+
+    let page_count = doc
+        .page_count()
+        .map_err(|e| CatboardError::ExtractionError {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
+    let mut all_text = String::new();
+
+    for page_num in 0..page_count {
+        match doc.extract_text(page_num) {
+            Ok(text) => {
+                if !all_text.is_empty() {
+                    all_text.push('\n');
+                }
+                all_text.push_str(&text);
+            }
+            Err(e) => {
+                return Err(CatboardError::ExtractionError {
+                    path: path.to_path_buf(),
+                    message: format!("Failed to extract page {}: {}", page_num + 1, e),
+                });
+            }
+        }
+    }
+
+    // If we got text, return it
+    if !all_text.trim().is_empty() {
+        return Ok(all_text);
+    }
+
+    // No text found - try OCR if available (scanned PDF)
+    if ocr::is_ocr_available() {
+        return extract_pdf_with_ocr(&mut doc, path, page_count);
+    }
+
+    Err(CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: "PDF contains no extractable text".to_string(),
+    })
+}
+
+/// Extract text from a scanned PDF using OCR.
+///
+/// Extracts images from each page and runs OCR on them.
+#[cfg(target_os = "macos")]
+fn extract_pdf_with_ocr(doc: &mut PdfDocument, path: &Path, page_count: usize) -> Result<String> {
+    use std::fs;
+
+    // Create temp directory for extracted images
+    let temp_dir = tempfile::tempdir().map_err(|e| CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: format!("Failed to create temp directory: {}", e),
+    })?;
+
+    let mut all_text = String::new();
+
+    for page_num in 0..page_count {
+        // Extract images from this page
+        let images = doc
+            .extract_images_to_files(page_num, temp_dir.path(), Some("page"), Some(page_num))
+            .map_err(|e| CatboardError::ExtractionError {
+                path: path.to_path_buf(),
+                message: format!("Failed to extract images from page {}: {}", page_num + 1, e),
+            })?;
+
+        // OCR each extracted image
+        for image_ref in images {
+            let image_path = temp_dir.path().join(&image_ref.filename);
+            if let Ok(text) = ocr::extract_text_from_image(&image_path) {
+                if !all_text.is_empty() && !text.trim().is_empty() {
+                    all_text.push('\n');
+                }
+                all_text.push_str(&text);
+            }
+            // Clean up image file
+            let _ = fs::remove_file(&image_path);
+        }
+    }
+
+    if all_text.trim().is_empty() {
+        return Err(CatboardError::ExtractionError {
+            path: path.to_path_buf(),
+            message: "PDF contains no recognizable text (OCR found nothing)".to_string(),
+        });
+    }
+
+    Ok(all_text)
+}
+
+/// Stub for non-macOS platforms - OCR not available
+#[cfg(not(target_os = "macos"))]
+fn extract_pdf_with_ocr(_doc: &mut PdfDocument, path: &Path, _page_count: usize) -> Result<String> {
+    Err(CatboardError::ExtractionError {
+        path: path.to_path_buf(),
+        message: "PDF contains no extractable text (OCR only available on macOS)".to_string(),
+    })
+}
+
+/// Read a plain text file with binary detection
+fn read_text_file(path: &Path) -> Result<String> {
     // Try to open the file
     let mut file = fs::File::open(path).map_err(|e| match e.kind() {
         io::ErrorKind::PermissionDenied => CatboardError::PermissionDenied(path.to_path_buf()),
@@ -157,5 +293,19 @@ mod tests {
 
         let result = read_file_contents(&file_path);
         assert!(matches!(result, Err(CatboardError::BinaryFile(_))));
+    }
+
+    #[test]
+    fn test_pdf_extension_detected() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("test.pdf");
+
+        // Create a fake PDF (will fail extraction but tests extension detection)
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(b"not a real pdf").unwrap();
+
+        let result = read_file_contents(&file_path);
+        // Should fail with ExtractionError, not BinaryFile
+        assert!(matches!(result, Err(CatboardError::ExtractionError { .. })));
     }
 }

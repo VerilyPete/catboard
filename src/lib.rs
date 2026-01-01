@@ -8,6 +8,8 @@
 //! - macOS Finder integration via Quick Action
 //! - Cross-platform support (macOS, Linux, Windows)
 //! - Binary file detection to prevent clipboard corruption
+//! - PDF text extraction
+//! - Image OCR on macOS via Vision framework
 //!
 //! ## Example
 //!
@@ -21,6 +23,7 @@
 pub mod clipboard;
 pub mod error;
 pub mod file;
+pub mod ocr;
 
 pub use clipboard::{copy_to_clipboard, Clipboard, SystemClipboard};
 pub use error::{CatboardError, Result};
