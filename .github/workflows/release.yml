@@ -88,6 +88,12 @@ jobs:
           # Immediately delete the certificate file
           rm -f "$CERT_PATH"
 
+          # Debug: List everything in the keychain
+          echo "=== All items in keychain ==="
+          security find-certificate -a "$KEYCHAIN_PATH" | grep -E "^keychain:|alis|labl" || echo "No certificates found"
+          echo "=== Private keys in keychain ==="
+          security find-key -a "$KEYCHAIN_PATH" 2>&1 | head -20 || echo "No keys found"
+
           # Configure for codesign
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
