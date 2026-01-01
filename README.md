@@ -1,19 +1,37 @@
 # Catboard
 
-A cross-platform CLI utility to copy file contents to the system clipboard, with macOS Finder integration.
+A macOS CLI utility to copy file contents to the system clipboard, with Finder integration and OCR support.
 
 Like `cat` but for your clipboard - hence **catboard**.
 
 ## Features
 
 - Copy text file contents to clipboard from the command line
+- Extract text from PDF documents
+- OCR images (PNG, JPG, TIFF, etc.) using macOS Vision framework
+- OCR scanned PDFs automatically when no embedded text is found
 - macOS Finder right-click integration via Quick Action
-- Cross-platform support (macOS, Linux, Windows)
 - Binary file detection to prevent clipboard corruption
 - Support for stdin input
 - Multiple file concatenation
 
 ## Installation
+
+### From Releases
+
+Download the latest release from the [releases page](https://github.com/VerilyPete/catboard/releases).
+
+```bash
+# Extract the archive
+tar xzf catboard-*.tar.gz
+cd catboard-*/
+
+# Install binaries
+sudo cp catboard catboard-ocr /usr/local/bin/
+
+# Install Finder Quick Action
+cp -r "Copy to Clipboard.workflow" ~/Library/Services/
+```
 
 ### From Source
 
@@ -22,19 +40,17 @@ Like `cat` but for your clipboard - hence **catboard**.
 git clone https://github.com/VerilyPete/catboard.git
 cd catboard
 
-# Build and install
+# Build the main binary
 cargo build --release
 sudo cp target/release/catboard /usr/local/bin/
+
+# Build the OCR helper (required for image/scanned PDF support)
+cd swift/catboard-ocr
+swift build -c release
+sudo cp .build/release/catboard-ocr /usr/local/bin/
 ```
 
-### macOS Finder Integration
-
-To add a "Copy to Clipboard" option in Finder's right-click menu:
-
-```bash
-# Copy the Quick Action to your Services folder
-cp -r "macos/Copy to Clipboard.workflow" ~/Library/Services/
-```
+### Finder Integration
 
 After installation, right-click any file in Finder and look for "Copy to Clipboard" under Quick Actions or Services.
 
@@ -43,8 +59,14 @@ After installation, right-click any file in Finder and look for "Copy to Clipboa
 ### Basic Usage
 
 ```bash
-# Copy a single file to clipboard
+# Copy a text file to clipboard
 catboard file.txt
+
+# Extract text from a PDF
+catboard document.pdf
+
+# OCR an image (requires catboard-ocr)
+catboard screenshot.png
 
 # Copy multiple files (contents concatenated with newlines)
 catboard file1.txt file2.txt file3.txt
@@ -79,33 +101,26 @@ catboard -q data.json
 # Copy code to share
 catboard src/main.rs
 
-# Copy multiple config files
-catboard ~/.bashrc ~/.zshrc
+# Extract text from a scanned document
+catboard scanned-receipt.pdf
+
+# OCR a screenshot
+catboard ~/Desktop/Screenshot.png
 ```
 
-## Platform Support
+## Supported File Types
 
-| Platform | Status | Clipboard Backend |
-|----------|--------|-------------------|
-| macOS    | Full support | Native (arboard) |
-| Linux (X11) | Supported | X11 clipboard |
-| Linux (Wayland) | Supported | Wayland clipboard |
-| Windows  | Supported | Win32 API |
+| File Type | Method |
+|-----------|--------|
+| Text files (.txt, .md, .rs, etc.) | Direct read with binary detection |
+| PDF documents | Text extraction, OCR fallback for scanned PDFs |
+| Images (.png, .jpg, .tiff, etc.) | OCR via macOS Vision framework |
 
-### Linux Requirements
+## Components
 
-On Linux, you may need to install clipboard-related packages:
-
-```bash
-# Ubuntu/Debian (X11)
-sudo apt install xclip
-
-# Ubuntu/Debian (Wayland)
-sudo apt install wl-clipboard
-
-# Fedora
-sudo dnf install xclip wl-clipboard
-```
+- **catboard** - Main CLI tool for copying file contents to clipboard
+- **catboard-ocr** - OCR helper using macOS Vision framework (required for image and scanned PDF support)
+- **Copy to Clipboard.workflow** - Finder Quick Action for right-click integration
 
 ## Error Handling
 
@@ -114,6 +129,7 @@ Catboard provides clear error messages for common issues:
 - **File not found**: The specified file doesn't exist
 - **Permission denied**: Cannot read the file
 - **Binary file**: File contains null bytes (likely binary data)
+- **Extraction error**: Failed to extract text from PDF or image
 - **Clipboard error**: Cannot access the system clipboard
 
 ## Development
@@ -121,7 +137,12 @@ Catboard provides clear error messages for common issues:
 ### Building
 
 ```bash
+# Build main binary
 cargo build
+
+# Build OCR helper
+cd swift/catboard-ocr
+swift build
 ```
 
 ### Testing
@@ -142,30 +163,32 @@ catboard/
 │   ├── main.rs       # CLI entry point
 │   ├── lib.rs        # Library exports
 │   ├── clipboard.rs  # Clipboard operations
-│   ├── file.rs       # File reading
+│   ├── file.rs       # File reading and PDF extraction
+│   ├── ocr.rs        # OCR integration
 │   └── error.rs      # Error types
+├── swift/
+│   └── catboard-ocr/ # macOS Vision OCR helper
 ├── tests/
 │   └── integration.rs
 └── macos/
     └── Copy to Clipboard.workflow/
 ```
 
+## Requirements
+
+- macOS (tested on macOS 13+)
+- For OCR: catboard-ocr must be installed in the same directory as catboard or in PATH
+
 ## Similar Tools
 
-On macOS, you can achieve similar functionality with built-in tools:
+For simple text file copying, you can use built-in macOS tools:
 
 ```bash
-# Using pbcopy (macOS only, no binary detection)
+# Using pbcopy (no PDF/image support, no binary detection)
 pbcopy < file.txt
-
-# Using xclip (Linux X11)
-xclip -selection clipboard < file.txt
-
-# Using xsel (Linux X11)
-xsel --clipboard < file.txt
 ```
 
-Catboard provides a unified cross-platform interface with additional features like binary file detection and Finder integration.
+Catboard adds PDF text extraction, OCR for images and scanned documents, and Finder integration.
 
 ## License
 
