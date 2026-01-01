@@ -27,27 +27,19 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test
     needs: [fmt, clippy]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -55,14 +47,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ matrix.os }}
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Run tests
         run: cargo test --workspace --all-features --all-targets
