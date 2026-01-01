@@ -396,18 +396,22 @@ jobs:
             --package-path . \
             "${PKG_NAME}"
 
-          # Sign the installer if signing is enabled
+          # Sign the installer if signing is enabled and installer cert exists
           if [ "${SIGNING_ENABLED:-false}" = "true" ]; then
             echo "Signing installer package..."
             INSTALLER_IDENTITY=$(security find-identity -v -p basic "${KEYCHAIN_PATH}" | \
               grep "Developer ID Installer" | head -1 | awk -F '"' '{print $2}')
 
             if [ -n "$INSTALLER_IDENTITY" ]; then
-              productsign --sign "$INSTALLER_IDENTITY" "${PKG_NAME}" "${PKG_NAME}.signed"
-              mv "${PKG_NAME}.signed" "${PKG_NAME}"
-              echo "Installer signed successfully"
+              if productsign --sign "$INSTALLER_IDENTITY" "${PKG_NAME}" "${PKG_NAME}.signed"; then
+                mv "${PKG_NAME}.signed" "${PKG_NAME}"
+                echo "Installer signed successfully"
+              else
+                echo "::warning::Failed to sign installer package, continuing unsigned"
+              fi
             else
-              echo "::warning::No Developer ID Installer certificate found, package unsigned"
+              echo "::notice::No Developer ID Installer certificate found, package will be unsigned"
+              echo "::notice::To sign .pkg installers, add a 'Developer ID Installer' certificate to APPLE_CERTIFICATE"
             fi
           fi
 
