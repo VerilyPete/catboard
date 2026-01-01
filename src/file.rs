@@ -308,4 +308,29 @@ mod tests {
         // Should fail with ExtractionError, not BinaryFile
         assert!(matches!(result, Err(CatboardError::ExtractionError { .. })));
     }
+
+    #[test]
+    fn test_rotated_pdf_detected_as_pdf() {
+        // Test that a rotated PDF is properly recognized as a PDF
+        // (not rejected as binary)
+        let pdf_path = std::path::Path::new("tests/2025-12-12_12-11-14.pdf");
+        if pdf_path.exists() {
+            let result = read_file_contents(pdf_path);
+            // Should fail with ExtractionError (no text or no OCR), not BinaryFile
+            match result {
+                Err(CatboardError::BinaryFile(_)) => {
+                    panic!("Rotated PDF should not be rejected as binary file");
+                }
+                Err(CatboardError::ExtractionError { .. }) => {
+                    // Expected - PDF has no text and OCR may not be available
+                }
+                Ok(_) => {
+                    // Also acceptable if OCR is available and works
+                }
+                Err(e) => {
+                    panic!("Unexpected error type: {:?}", e);
+                }
+            }
+        }
+    }
 }
