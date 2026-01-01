@@ -124,14 +124,15 @@ fn extract_pdf_with_ocr(doc: &mut PdfDocument, path: &Path, page_count: usize) -
 
         // OCR each extracted image
         for image_ref in images {
-            if let Ok(text) = ocr::extract_text_from_image(&image_ref.path) {
+            let image_path = temp_dir.path().join(&image_ref.filename);
+            if let Ok(text) = ocr::extract_text_from_image(&image_path) {
                 if !all_text.is_empty() && !text.trim().is_empty() {
                     all_text.push('\n');
                 }
                 all_text.push_str(&text);
             }
             // Clean up image file
-            let _ = fs::remove_file(&image_ref.path);
+            let _ = fs::remove_file(&image_path);
         }
     }
 
