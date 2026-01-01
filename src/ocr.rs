@@ -62,10 +62,14 @@ impl Default for SystemOcrEngine {
 impl OcrEngine for SystemOcrEngine {
     #[cfg(target_os = "macos")]
     fn extract_text(&self, path: &Path) -> Result<String> {
-        let helper = self.helper_path.as_ref().ok_or_else(|| CatboardError::ExtractionError {
-            path: path.to_path_buf(),
-            message: "OCR helper 'catboard-ocr' not found. Install it alongside catboard.".to_string(),
-        })?;
+        let helper = self
+            .helper_path
+            .as_ref()
+            .ok_or_else(|| CatboardError::ExtractionError {
+                path: path.to_path_buf(),
+                message: "OCR helper 'catboard-ocr' not found. Install it alongside catboard."
+                    .to_string(),
+            })?;
 
         run_ocr_helper(helper, path)
     }
@@ -93,13 +97,12 @@ impl OcrEngine for SystemOcrEngine {
 /// Run the OCR helper binary and extract text
 #[cfg(target_os = "macos")]
 fn run_ocr_helper(helper: &Path, image_path: &Path) -> Result<String> {
-    let output = Command::new(helper)
-        .arg(image_path)
-        .output()
-        .map_err(|e| CatboardError::ExtractionError {
+    let output = Command::new(helper).arg(image_path).output().map_err(|e| {
+        CatboardError::ExtractionError {
             path: image_path.to_path_buf(),
             message: format!("Failed to run OCR helper: {}", e),
-        })?;
+        }
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

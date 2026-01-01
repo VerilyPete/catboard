@@ -57,10 +57,12 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
         message: e.to_string(),
     })?;
 
-    let page_count = doc.page_count().map_err(|e| CatboardError::ExtractionError {
-        path: path.to_path_buf(),
-        message: e.to_string(),
-    })?;
+    let page_count = doc
+        .page_count()
+        .map_err(|e| CatboardError::ExtractionError {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
     let mut all_text = String::new();
 
     for page_num in 0..page_count {
@@ -100,11 +102,7 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 ///
 /// Extracts images from each page and runs OCR on them.
 #[cfg(target_os = "macos")]
-fn extract_pdf_with_ocr(
-    doc: &mut PdfDocument,
-    path: &Path,
-    page_count: usize,
-) -> Result<String> {
+fn extract_pdf_with_ocr(doc: &mut PdfDocument, path: &Path, page_count: usize) -> Result<String> {
     use std::fs;
 
     // Create temp directory for extracted images
@@ -149,11 +147,7 @@ fn extract_pdf_with_ocr(
 
 /// Stub for non-macOS platforms - OCR not available
 #[cfg(not(target_os = "macos"))]
-fn extract_pdf_with_ocr(
-    _doc: &mut PdfDocument,
-    path: &Path,
-    _page_count: usize,
-) -> Result<String> {
+fn extract_pdf_with_ocr(_doc: &mut PdfDocument, path: &Path, _page_count: usize) -> Result<String> {
     Err(CatboardError::ExtractionError {
         path: path.to_path_buf(),
         message: "PDF contains no extractable text (OCR only available on macOS)".to_string(),
