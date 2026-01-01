@@ -482,10 +482,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Homebrew formula
+      - name: Update Homebrew tap
         if: ${{ !contains(github.ref, 'beta') && !contains(github.ref, 'alpha') && !contains(github.ref, 'rc') }}
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Skip if no token configured
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN not configured, skipping tap update"
+            exit 0
+          fi
 
           # Extract version from tag
           VERSION=${GITHUB_REF#refs/tags/}
@@ -502,17 +510,52 @@ jobs:
           echo "Version: $VERSION_NUM"
           echo "SHA256: $SHA256"
 
-          # Update the formula (works for both placeholder and previous values)
-          sed -i "s/version \"[^\"]*\"/version \"${VERSION_NUM}\"/" Formula/catboard.rb
-          sed -i "s/sha256 \"[^\"]*\"/sha256 \"${SHA256}\"/" Formula/catboard.rb
+          # Clone the tap repo
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/VerilyPete/homebrew-catboard.git" tap-repo
+          cd tap-repo
 
-          # Show the updated formula
-          echo "=== Updated Formula ==="
-          cat Formula/catboard.rb
+          # Create/update the formula
+          mkdir -p Formula
+          cat > Formula/catboard.rb << FORMULA
+          class Catboard < Formula
+            desc "Copy file contents to clipboard with PDF text extraction and OCR"
+            homepage "https://github.com/VerilyPete/catboard"
+            version "${VERSION_NUM}"
+            license "MIT"
 
-          # Commit and push the updated formula
+            on_macos do
+              on_arm do
+                url "https://github.com/VerilyPete/catboard/releases/download/${VERSION}/catboard-${VERSION}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA256}"
+              end
+            end
+
+            def install
+              bin.install "catboard"
+              bin.install "catboard-ocr"
+              pkgshare.install "Copy to Clipboard.workflow"
+            end
+
+            def caveats
+              <<~EOS
+                To enable Finder right-click integration, run:
+                  cp -r "#{pkgshare}/Copy to Clipboard.workflow" ~/Library/Services/
+
+                Then right-click any file in Finder to see "Copy to Clipboard" under Quick Actions.
+              EOS
+            end
+
+            test do
+              assert_match "catboard", shell_output("#{bin}/catboard --version")
+            end
+          end
+          FORMULA
+
+          # Commit and push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/catboard.rb
-          git commit -m "chore: update Homebrew formula for ${VERSION}"
-          git push origin HEAD:main
+          git commit -m "Update catboard to ${VERSION}"
+          git push
+
+          echo "::notice::Homebrew tap updated successfully"
