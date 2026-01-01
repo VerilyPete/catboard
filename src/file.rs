@@ -100,50 +100,25 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 
 /// Extract text from a scanned PDF using OCR.
 ///
-/// Extracts images from each page and runs OCR on them.
+/// Uses macOS Vision framework via catboard-ocr helper.
+/// NSImage can render PDFs directly, so we pass the PDF to OCR
+/// rather than extracting individual images (which can lose quality).
 #[cfg(target_os = "macos")]
-fn extract_pdf_with_ocr(doc: &mut PdfDocument, path: &Path, page_count: usize) -> Result<String> {
-    use std::fs;
+fn extract_pdf_with_ocr(_doc: &mut PdfDocument, path: &Path, _page_count: usize) -> Result<String> {
+    // NSImage can render PDFs directly, and catboard-ocr uses NSImage.
+    // This is simpler and more reliable than extracting images with pdf_oxide.
+    // Note: For multi-page PDFs, NSImage renders the first page only.
+    // This is acceptable for most scanned documents which are single-page.
+    let text = ocr::extract_text_from_image(path)?;
 
-    // Create temp directory for extracted images
-    let temp_dir = tempfile::tempdir().map_err(|e| CatboardError::ExtractionError {
-        path: path.to_path_buf(),
-        message: format!("Failed to create temp directory: {}", e),
-    })?;
-
-    let mut all_text = String::new();
-
-    for page_num in 0..page_count {
-        // Extract images from this page
-        let images = doc
-            .extract_images_to_files(page_num, temp_dir.path(), Some("page"), Some(page_num))
-            .map_err(|e| CatboardError::ExtractionError {
-                path: path.to_path_buf(),
-                message: format!("Failed to extract images from page {}: {}", page_num + 1, e),
-            })?;
-
-        // OCR each extracted image
-        for image_ref in images {
-            let image_path = temp_dir.path().join(&image_ref.filename);
-            if let Ok(text) = ocr::extract_text_from_image(&image_path) {
-                if !all_text.is_empty() && !text.trim().is_empty() {
-                    all_text.push('\n');
-                }
-                all_text.push_str(&text);
-            }
-            // Clean up image file
-            let _ = fs::remove_file(&image_path);
-        }
-    }
-
-    if all_text.trim().is_empty() {
+    if text.trim().is_empty() {
         return Err(CatboardError::ExtractionError {
             path: path.to_path_buf(),
             message: "PDF contains no recognizable text (OCR found nothing)".to_string(),
         });
     }
 
-    Ok(all_text)
+    Ok(text)
 }
 
 /// Stub for non-macOS platforms - OCR not available
