@@ -68,7 +68,6 @@
 					<string>#!/bin/bash
 
 # Copy file contents to clipboard using catboard
-# Falls back to pbcopy if catboard is not installed
 
 CATBOARD_PATH="/usr/local/bin/catboard"
 
@@ -82,9 +81,7 @@ for f in "$@"; do
                 osascript -e "display notification \"Failed to copy file (may be binary)\" with title \"Catboard\" sound name \"Basso\""
             fi
         else
-            # Fallback to pbcopy
-            cat "$f" | pbcopy
-            osascript -e "display notification \"Copied contents to clipboard\" with title \"Copy to Clipboard\" sound name \"Glass\""
+            osascript -e "display notification \"catboard not installed at $CATBOARD_PATH\" with title \"Catboard\" sound name \"Basso\""
         fi
     else
         osascript -e "display notification \"Not a file: $f\" with title \"Catboard\" sound name \"Basso\""
