@@ -1,0 +1,3 @@
+[advisories]
+# lzw is unmaintained but not insecure - transitive dependency from pdf_oxide
+ignore = ["RUSTSEC-2020-0144"]

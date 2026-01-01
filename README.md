@@ -17,9 +17,27 @@ Like `cat` but for your clipboard - hence **catboard**.
 
 ## Installation
 
-### From Releases
+### Homebrew (recommended)
 
-Download the latest release from the [releases page](https://github.com/VerilyPete/catboard/releases).
+```bash
+brew install VerilyPete/catboard/catboard
+```
+
+After installation, enable Finder integration:
+
+```bash
+cp -r "$(brew --prefix)/share/catboard/Copy to Clipboard.workflow" ~/Library/Services/
+```
+
+### macOS Installer (.pkg)
+
+Download `catboard-*-installer.pkg` from the [releases page](https://github.com/VerilyPete/catboard/releases) and double-click to install. The installer automatically sets up:
+- CLI tools in `/usr/local/bin`
+- Finder Quick Action for right-click integration
+
+### Manual Installation
+
+Download the tarball from the [releases page](https://github.com/VerilyPete/catboard/releases):
 
 ```bash
 # Extract the archive
@@ -48,6 +66,9 @@ sudo cp target/release/catboard /usr/local/bin/
 cd swift/catboard-ocr
 swift build -c release
 sudo cp .build/release/catboard-ocr /usr/local/bin/
+
+# Install Finder Quick Action
+cp -r "macos/Copy to Clipboard.workflow" ~/Library/Services/
 ```
 
 ### Finder Integration
