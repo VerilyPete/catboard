@@ -78,9 +78,8 @@ func renderPDFPage(_ page: PDFPage, dpi: CGFloat = PDF_RENDER_DPI) -> CGImage? {
     let width = Int(pageRect.width * scale)
     let height = Int(pageRect.height * scale)
 
-    guard let colorSpace = CGColorSpaceCreateDeviceRGB() else {
-        return nil
-    }
+    // CGColorSpaceCreateDeviceRGB() always returns a valid colorspace
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     guard let context = CGContext(
         data: nil,
@@ -111,9 +110,7 @@ func performPDFOCR(on pdfURL: URL) -> Int32 {
     }
 
     // Check for password protection
-    if pdfDocument.isEncrypted && !pdfDocument.isLocked {
-        // Encrypted but we can read it (no password required)
-    } else if pdfDocument.isLocked {
+    if pdfDocument.isLocked {
         fputs("Error: PDF is password-protected\n", stderr)
         return 1
     }
@@ -161,6 +158,13 @@ func performPDFOCR(on pdfURL: URL) -> Int32 {
         }
     }
 
+    // Check if we got any text at all
+    let combinedText = allText.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    if combinedText.isEmpty && pageErrors == 0 {
+        fputs("Error: No text recognized in PDF (all pages were blank or unreadable)\n", stderr)
+        return 1
+    }
+
     // Output all recognized text
     for line in allText {
         print(line)
@@ -168,7 +172,7 @@ func performPDFOCR(on pdfURL: URL) -> Int32 {
 
     // Return non-zero if any pages failed
     if pageErrors > 0 {
-        fputs("Warning: \(pageErrors) of \(pageCount) pages had errors\n", stderr)
+        fputs("Error: \(pageErrors) of \(pageCount) pages had errors\n", stderr)
         return 1
     }
 
@@ -224,6 +228,19 @@ PDFKit's `PDFPage.draw(with:to:)` automatically handles page rotation metadata.
 - `tests/multi-page-scanned.pdf` - 3+ page scanned document
 - `tests/password-protected.pdf` - Password-protected PDF (for error handling test)
 
+#### Creating Test Files
+
+```bash
+# Create password-protected PDF using qpdf
+qpdf --encrypt "password" "password" 256 -- input.pdf tests/password-protected.pdf
+
+# Alternative: Create password-protected PDF using Preview.app
+# File > Export as PDF > Security Options > Require password to open
+
+# Multi-page scanned PDF: Combine screenshots or scan multiple pages
+# Use Preview.app: File > Export as PDF, then combine using PDF Expert or Preview
+```
+
 ### Test Cases
 
 | Test Case | Expected Behavior |
@@ -234,7 +251,8 @@ PDFKit's `PDFPage.draw(with:to:)` automatically handles page rotation metadata.
 | Empty PDF (0 pages) | Exit 1 with error message |
 | Password-protected PDF | Exit 1 with clear error message |
 | Corrupted page in middle | Log warning, continue, exit 1 |
-| Rotated PDF | PDFKit handles rotation automatically |
+| Rotated PDF | PDFKit handles rotation automatically; text should be readable |
+| All pages blank/unreadable | Exit 1 with "No text recognized" error |
 | Very large PDF (100+ pages) | Sequential processing, ~1.2MB/page |
 
 ### Manual Testing
@@ -306,13 +324,15 @@ This should be documented in release notes.
 - [ ] Log OCR failures with error details to stderr
 - [ ] Return exit code 1 if any page fails
 - [ ] Handle empty PDF (0 pages) case
+- [ ] Handle all-pages-blank case (OCR succeeds but no text found)
 
 ### Testing
 - [ ] Create multi-page test PDF (3+ pages)
-- [ ] Create password-protected test PDF
-- [ ] Test with existing rotated PDF (`tests/2025-12-12_12-11-14.pdf`)
+- [ ] Create password-protected test PDF (use qpdf or Preview.app)
+- [ ] Test with existing rotated PDF (`tests/2025-12-12_12-11-14.pdf`) - verify text is readable
 - [ ] Add Rust integration test for multi-page output
 - [ ] Test backward compatibility with image files
+- [ ] Test all-pages-blank case returns exit code 1
 
 ### Documentation
 - [ ] Update Rust code comments in `src/file.rs`
