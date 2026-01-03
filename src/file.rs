@@ -101,14 +101,13 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 /// Extract text from a scanned PDF using OCR.
 ///
 /// Uses macOS Vision framework via catboard-ocr helper.
-/// NSImage can render PDFs directly, so we pass the PDF to OCR
-/// rather than extracting individual images (which can lose quality).
+/// The OCR helper uses PDFKit to iterate through all pages, render each
+/// at 150 DPI, and run Vision OCR on each page sequentially.
 #[cfg(target_os = "macos")]
 fn extract_pdf_with_ocr(_doc: &mut PdfDocument, path: &Path, _page_count: usize) -> Result<String> {
-    // NSImage can render PDFs directly, and catboard-ocr uses NSImage.
-    // This is simpler and more reliable than extracting images with pdf_oxide.
-    // Note: For multi-page PDFs, NSImage renders the first page only.
-    // This is acceptable for most scanned documents which are single-page.
+    // catboard-ocr uses PDFKit for multi-page PDF support.
+    // Each page is rendered and OCR'd sequentially, with page separators
+    // added between pages (e.g., "--- Page 2 ---").
     let text = ocr::extract_text_from_image(path)?;
 
     if text.trim().is_empty() {

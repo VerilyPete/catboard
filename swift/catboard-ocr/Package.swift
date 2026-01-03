@@ -9,7 +9,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "catboard-ocr",
-            path: "Sources"
+            path: "Sources",
+            linkerSettings: [
+                .linkedFramework("Quartz")
+            ]
         )
     ]
 )
