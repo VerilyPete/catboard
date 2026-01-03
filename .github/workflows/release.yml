@@ -558,7 +558,7 @@ jobs:
           echo "SHA256: $SHA256"
 
           # Clone the tap repo
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/VerilyPete/homebrew-catboard.git" tap-repo
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/VerilyPete/homebrew-tap.git" tap-repo
           cd tap-repo
 
           # Create/update the formula
