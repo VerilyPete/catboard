@@ -78,7 +78,10 @@ func renderPDFPage(_ page: PDFPage, dpi: CGFloat = PDF_RENDER_DPI) -> CGImage? {
     let width = Int(pageRect.width * scale)
     let height = Int(pageRect.height * scale)
 
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let colorSpace = CGColorSpaceCreateDeviceRGB() else {
+        return nil
+    }
+
     guard let context = CGContext(
         data: nil,
         width: width,
@@ -89,7 +92,7 @@ func renderPDFPage(_ page: PDFPage, dpi: CGFloat = PDF_RENDER_DPI) -> CGImage? {
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ) else { return nil }
 
-    // White background
+    // White background (important for scanned documents)
     context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
@@ -103,26 +106,72 @@ func renderPDFPage(_ page: PDFPage, dpi: CGFloat = PDF_RENDER_DPI) -> CGImage? {
 func performPDFOCR(on pdfURL: URL) -> Int32 {
     guard let pdfDocument = PDFDocument(url: pdfURL) else {
         fputs("Error: Could not open PDF: \(pdfURL.path)\n", stderr)
+        fputs("The file may be corrupted or inaccessible.\n", stderr)
+        return 1
+    }
+
+    // Check for password protection
+    if pdfDocument.isEncrypted && !pdfDocument.isLocked {
+        // Encrypted but we can read it (no password required)
+    } else if pdfDocument.isLocked {
+        fputs("Error: PDF is password-protected\n", stderr)
+        return 1
+    }
+
+    let pageCount = pdfDocument.pageCount
+    if pageCount == 0 {
+        fputs("Error: PDF has no pages\n", stderr)
         return 1
     }
 
     var allText: [String] = []
+    var pageErrors = 0
 
-    for pageIndex in 0..<pdfDocument.pageCount {
-        guard let page = pdfDocument.page(at: pageIndex),
-              let cgImage = renderPDFPage(page) else { continue }
+    for pageIndex in 0..<pageCount {
+        // Access page with error logging
+        guard let page = pdfDocument.page(at: pageIndex) else {
+            fputs("Warning: Could not access page \(pageIndex + 1)\n", stderr)
+            pageErrors += 1
+            continue
+        }
 
-        if let pageText = try? recognizeText(in: cgImage) {
+        // Render page with error logging
+        guard let cgImage = renderPDFPage(page) else {
+            fputs("Warning: Could not render page \(pageIndex + 1)\n", stderr)
+            pageErrors += 1
+            continue
+        }
+
+        // OCR with error logging
+        do {
+            let pageText = try recognizeText(in: cgImage)
+
+            // Add page separator for multi-page documents (not before first page)
             if pageIndex > 0 && !allText.isEmpty {
                 allText.append("")
                 allText.append("--- Page \(pageIndex + 1) ---")
                 allText.append("")
             }
+
             allText.append(contentsOf: pageText)
+        } catch {
+            fputs("Warning: OCR failed on page \(pageIndex + 1): \(error.localizedDescription)\n", stderr)
+            pageErrors += 1
+            continue
         }
     }
 
-    for line in allText { print(line) }
+    // Output all recognized text
+    for line in allText {
+        print(line)
+    }
+
+    // Return non-zero if any pages failed
+    if pageErrors > 0 {
+        fputs("Warning: \(pageErrors) of \(pageCount) pages had errors\n", stderr)
+        return 1
+    }
+
     return 0
 }
 
@@ -138,9 +187,22 @@ func performOCR(on fileURL: URL) -> Int32 {
 
 ### Step 3: Key Implementation Details
 
+#### Error Handling Strategy
+- **Page access failures**: Log warning to stderr, continue processing other pages
+- **Render failures**: Log warning to stderr, continue processing other pages
+- **OCR failures**: Log warning with error details to stderr, continue processing
+- **Return code**: Return 1 if ANY page fails, so Rust knows there were issues
+- **Partial results**: Always output successfully processed pages even if some fail
+
+#### Password-Protected PDFs
+- Check `pdfDocument.isLocked` before processing
+- Return clear error message if PDF requires password
+- Exit with code 1 (Rust will see extraction failed)
+
 #### DPI Selection
 - **150 DPI**: Good balance of OCR accuracy and memory usage
 - A4 page at 150 DPI ≈ 1.2 MB per page image
+- Future enhancement: Make configurable via CLI flag
 
 #### Page Separators
 Multi-page output format:
@@ -160,6 +222,20 @@ PDFKit's `PDFPage.draw(with:to:)` automatically handles page rotation metadata.
 ### Test Files Needed
 - `tests/single-page-scanned.pdf` - One page scanned document
 - `tests/multi-page-scanned.pdf` - 3+ page scanned document
+- `tests/password-protected.pdf` - Password-protected PDF (for error handling test)
+
+### Test Cases
+
+| Test Case | Expected Behavior |
+|-----------|-------------------|
+| Multi-page scanned PDF | All pages OCR'd with separators |
+| Single-page scanned PDF | Works same as before |
+| Image files (PNG, JPG) | Backward compatible via NSImage |
+| Empty PDF (0 pages) | Exit 1 with error message |
+| Password-protected PDF | Exit 1 with clear error message |
+| Corrupted page in middle | Log warning, continue, exit 1 |
+| Rotated PDF | PDFKit handles rotation automatically |
+| Very large PDF (100+ pages) | Sequential processing, ~1.2MB/page |
 
 ### Manual Testing
 ```bash
@@ -169,11 +245,25 @@ cd swift/catboard-ocr && swift build -c release
 # Test multi-page PDF
 .build/release/catboard-ocr /path/to/multi-page.pdf
 
+# Test password-protected PDF (should fail with clear message)
+.build/release/catboard-ocr /path/to/password-protected.pdf
+
 # Test image (backward compatibility)
 .build/release/catboard-ocr /path/to/image.png
 
 # Full integration
 cargo build && ./target/debug/catboard tests/multi-page.pdf
+```
+
+### Integration Test (Rust)
+```rust
+#[test]
+fn test_multi_page_pdf_ocr_integration() {
+    let result = read_file_contents("tests/multi-page-scanned.pdf");
+    assert!(result.is_ok());
+    let text = result.unwrap();
+    assert!(text.contains("--- Page 2 ---")); // Verify separator
+}
 ```
 
 ## Breaking Changes
@@ -188,23 +278,51 @@ For multi-page PDFs:
 - **Before**: Only first page text
 - **After**: All pages with `--- Page N ---` separators
 
+This should be documented in release notes.
+
 ## Memory Considerations
 
 - A4 page at 150 DPI: ~1.2 MB per page image
-- 100-page PDF: ~120 MB peak memory
-- Pages are processed sequentially (not loaded all at once)
+- 100-page PDF: ~120 MB peak memory (sequential processing)
+- Pages are processed one at a time (not loaded all at once)
+- Very large PDFs (500+ pages): ~600 MB, may be slow but safe
 
 ## Implementation Checklist
 
+### Core Implementation
 - [ ] Update `Package.swift` to link Quartz framework
 - [ ] Add `import Quartz` to main.swift
 - [ ] Implement `isPDFFile()` function
-- [ ] Implement `renderPDFPage()` function
+- [ ] Implement `renderPDFPage()` function with colorspace safety
 - [ ] Implement `performPDFOCR()` function
 - [ ] Refactor `performOCR()` to route PDF vs image
 - [ ] Rename existing OCR function to `performImageOCR()`
 - [ ] Add page separators for multi-page output
-- [ ] Update Rust code comments in `src/file.rs`
-- [ ] Create multi-page test PDF
+
+### Error Handling
+- [ ] Add password-protected PDF detection with clear error
+- [ ] Log page access failures to stderr (don't silently skip)
+- [ ] Log page render failures to stderr
+- [ ] Log OCR failures with error details to stderr
+- [ ] Return exit code 1 if any page fails
+- [ ] Handle empty PDF (0 pages) case
+
+### Testing
+- [ ] Create multi-page test PDF (3+ pages)
+- [ ] Create password-protected test PDF
 - [ ] Test with existing rotated PDF (`tests/2025-12-12_12-11-14.pdf`)
+- [ ] Add Rust integration test for multi-page output
+- [ ] Test backward compatibility with image files
+
+### Documentation
+- [ ] Update Rust code comments in `src/file.rs`
 - [ ] Update README with multi-page PDF support
+- [ ] Document output format change in release notes
+
+## Future Enhancements (Out of Scope)
+
+- Configurable DPI via CLI flag (`--dpi 200`)
+- Parallel page processing for performance
+- Page range selection (`--pages 1-5`)
+- Progress reporting for large documents
+- Language/charset configuration
