@@ -21,7 +21,7 @@ Like `cat` but for your clipboard - hence **catboard**.
 ### Homebrew (recommended)
 
 ```bash
-brew install VerilyPete/catboard/catboard
+brew install VerilyPete/tap/catboard
 ```
 
 After installation, enable Finder integration:
