@@ -7,9 +7,10 @@ Like `cat` but for your clipboard - hence **catboard**.
 ## Features
 
 - Copy text file contents to clipboard from the command line
-- Extract text from PDF documents
+- Extract text from PDF documents (including multi-page PDFs)
 - OCR images (PNG, JPG, TIFF, etc.) using macOS Vision framework
 - OCR scanned PDFs automatically when no embedded text is found
+- Multi-page PDF OCR with page separators
 - macOS Finder right-click integration via Quick Action
 - Binary file detection to prevent clipboard corruption
 - Support for stdin input
@@ -135,6 +136,7 @@ catboard ~/Desktop/Screenshot.png
 |-----------|--------|
 | Text files (.txt, .md, .rs, etc.) | Direct read with binary detection |
 | PDF documents | Text extraction, OCR fallback for scanned PDFs |
+| Multi-page PDFs | All pages extracted with `--- Page N ---` separators |
 | Images (.png, .jpg, .tiff, etc.) | OCR via macOS Vision framework |
 
 ## Components
