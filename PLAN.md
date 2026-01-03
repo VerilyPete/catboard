@@ -1,141 +1,210 @@
-# Catboard - Cross-Platform Clipboard Utility
+# Multi-Page PDF OCR Implementation Plan
 
 ## Overview
 
-**Catboard** is a Rust-based CLI utility that copies file contents to the system clipboard. It supports both command-line usage and macOS Finder integration via a Quick Action.
+Currently, catboard's OCR helper (`catboard-ocr`) uses `NSImage` to load files for OCR processing. While this works well for images and single-page PDFs, `NSImage` only renders the first page of multi-page PDFs. This limitation means that scanned multi-page documents only have their first page extracted.
 
-## Goals
+This plan details how to add PDFKit support to `catboard-ocr` to iterate through all pages of a PDF, render each page to a `CGImage`, run OCR on each, and concatenate the results.
 
-1. **CLI Tool**: Copy file contents to clipboard from terminal
-2. **Finder Integration**: Right-click context menu option in macOS Finder
-3. **Multi-Platform**: Support macOS, Linux, and Windows
-4. **TDD Approach**: Test-driven development throughout
+## Current Architecture
 
-## Architecture
+### Swift Helper (catboard-ocr)
+- **Location**: `swift/catboard-ocr/Sources/main.swift`
+- **Function**: `performOCR(on imageURL: URL)` loads file with `NSImage`, converts to `CGImage`, runs `VNRecognizeTextRequest`
+- **Limitation**: Uses `NSImage(contentsOf:)` which only renders PDF page 1
 
+### Rust Integration
+- **Location**: `src/file.rs`, function `extract_pdf_with_ocr`
+- **Behavior**: Passes PDF path directly to OCR helper
+
+## Implementation Steps
+
+### Step 1: Update Package.swift
+
+Add Quartz framework dependency (contains PDFKit):
+
+```swift
+// swift/catboard-ocr/Package.swift
+let package = Package(
+    name: "catboard-ocr",
+    platforms: [
+        .macOS(.v10_15)
+    ],
+    targets: [
+        .executableTarget(
+            name: "catboard-ocr",
+            path: "Sources",
+            linkerSettings: [
+                .linkedFramework("Quartz")
+            ]
+        )
+    ]
+)
 ```
-catboard/
-├── Cargo.toml
-├── src/
-│   ├── main.rs           # CLI entry point
-│   ├── lib.rs            # Library exports
-│   ├── clipboard.rs      # Platform-specific clipboard operations
-│   ├── file.rs           # File reading operations
-│   └── error.rs          # Custom error types
-├── tests/
-│   └── integration.rs    # Integration tests
-└── macos/
-    └── Copy to Clipboard.workflow/  # Finder Quick Action
+
+### Step 2: Refactor main.swift
+
+Key changes to the Swift OCR helper:
+
+```swift
+import Foundation
+import Vision
+import AppKit
+import Quartz  // PDFKit is part of Quartz
+
+let PDF_RENDER_DPI: CGFloat = 150.0
+
+/// Check if a file is a PDF based on extension
+func isPDFFile(_ url: URL) -> Bool {
+    return url.pathExtension.lowercased() == "pdf"
+}
+
+/// Perform OCR on a single CGImage
+func recognizeText(in cgImage: CGImage) throws -> [String] {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    try handler.perform([request])
+
+    return request.results?.compactMap { $0.topCandidates(1).first?.string } ?? []
+}
+
+/// Render a PDF page to CGImage at specified DPI
+func renderPDFPage(_ page: PDFPage, dpi: CGFloat = PDF_RENDER_DPI) -> CGImage? {
+    let pageRect = page.bounds(for: .mediaBox)
+    let scale = dpi / 72.0
+    let width = Int(pageRect.width * scale)
+    let height = Int(pageRect.height * scale)
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+
+    // White background
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+    context.scaleBy(x: scale, y: scale)
+    page.draw(with: .mediaBox, to: context)
+
+    return context.makeImage()
+}
+
+/// Perform OCR on a multi-page PDF
+func performPDFOCR(on pdfURL: URL) -> Int32 {
+    guard let pdfDocument = PDFDocument(url: pdfURL) else {
+        fputs("Error: Could not open PDF: \(pdfURL.path)\n", stderr)
+        return 1
+    }
+
+    var allText: [String] = []
+
+    for pageIndex in 0..<pdfDocument.pageCount {
+        guard let page = pdfDocument.page(at: pageIndex),
+              let cgImage = renderPDFPage(page) else { continue }
+
+        if let pageText = try? recognizeText(in: cgImage) {
+            if pageIndex > 0 && !allText.isEmpty {
+                allText.append("")
+                allText.append("--- Page \(pageIndex + 1) ---")
+                allText.append("")
+            }
+            allText.append(contentsOf: pageText)
+        }
+    }
+
+    for line in allText { print(line) }
+    return 0
+}
+
+/// Main entry point - routes to PDF or image handler
+func performOCR(on fileURL: URL) -> Int32 {
+    if isPDFFile(fileURL) {
+        return performPDFOCR(on: fileURL)
+    } else {
+        return performImageOCR(on: fileURL)  // Existing NSImage-based logic
+    }
+}
 ```
 
-## Platform Support
+### Step 3: Key Implementation Details
 
-| Platform | Clipboard Backend | Status |
-|----------|------------------|--------|
-| macOS    | `pbcopy`/`pbpaste` or `arboard` crate | Primary |
-| Linux    | X11/Wayland via `arboard` | Secondary |
-| Windows  | Win32 API via `arboard` | Secondary |
+#### DPI Selection
+- **150 DPI**: Good balance of OCR accuracy and memory usage
+- A4 page at 150 DPI ≈ 1.2 MB per page image
 
-## Dependencies
+#### Page Separators
+Multi-page output format:
+```
+[Page 1 text]
 
-- **clap**: Command-line argument parsing
-- **arboard**: Cross-platform clipboard access
-- **thiserror**: Error handling
+--- Page 2 ---
 
-## Implementation Plan
+[Page 2 text]
+```
 
-### Phase 1: Project Setup
-- Initialize Cargo project
-- Add dependencies
-- Set up test infrastructure
+#### Rotation Handling
+PDFKit's `PDFPage.draw(with:to:)` automatically handles page rotation metadata.
 
-### Phase 2: Core Library (TDD)
-1. **Error Module** (`src/error.rs`)
-   - Define custom error types for file and clipboard operations
-   - Tests: Error creation and display
+## Testing Strategy
 
-2. **File Module** (`src/file.rs`)
-   - Read file contents as String
-   - Handle binary file detection
-   - Tests: Read valid file, handle missing file, handle permission errors
+### Test Files Needed
+- `tests/single-page-scanned.pdf` - One page scanned document
+- `tests/multi-page-scanned.pdf` - 3+ page scanned document
 
-3. **Clipboard Module** (`src/clipboard.rs`)
-   - Abstract clipboard operations behind a trait
-   - Platform-specific implementations
-   - Tests: Set/get clipboard content (with mock for CI)
-
-### Phase 3: CLI Interface (TDD)
-- Parse command-line arguments
-- Support multiple files
-- Verbose/quiet modes
-- Tests: Argument parsing, help output
-
-### Phase 4: Finder Integration
-- Create Automator Quick Action workflow
-- Shell script that invokes catboard binary
-- Installation instructions
-
-## CLI Usage
-
+### Manual Testing
 ```bash
-# Copy single file contents to clipboard
-catboard file.txt
+# Build
+cd swift/catboard-ocr && swift build -c release
 
-# Copy multiple files (concatenated)
-catboard file1.txt file2.txt
+# Test multi-page PDF
+.build/release/catboard-ocr /path/to/multi-page.pdf
 
-# Read from stdin
-echo "hello" | catboard -
+# Test image (backward compatibility)
+.build/release/catboard-ocr /path/to/image.png
 
-# Verbose mode
-catboard -v file.txt
-
-# Show version
-catboard --version
+# Full integration
+cargo build && ./target/debug/catboard tests/multi-page.pdf
 ```
 
-## TDD Test Strategy
+## Breaking Changes
 
-### Unit Tests
-- Error type creation and formatting
-- File reading (valid, missing, binary detection)
-- Argument parsing
+**None expected.** The implementation is backward compatible:
+- Image files continue to work via NSImage path
+- Single-page PDFs work the same way
+- Multi-page PDFs now return all pages (enhancement)
 
-### Integration Tests
-- Full CLI invocation with test files
-- Clipboard operations (platform-specific, may skip in CI)
+### Output Format Change
+For multi-page PDFs:
+- **Before**: Only first page text
+- **After**: All pages with `--- Page N ---` separators
 
-### Test Doubles
-- Mock clipboard trait for unit testing
-- Temporary files for file operations
+## Memory Considerations
 
-## Finder Quick Action
+- A4 page at 150 DPI: ~1.2 MB per page image
+- 100-page PDF: ~120 MB peak memory
+- Pages are processed sequentially (not loaded all at once)
 
-The Quick Action will be an Automator workflow that:
-1. Receives selected files as input
-2. Runs the catboard CLI on each file
-3. Shows a notification on success/failure
+## Implementation Checklist
 
-```bash
-# Automator shell script content
-/usr/local/bin/catboard "$@"
-```
-
-## Success Criteria
-
-- [ ] `catboard file.txt` copies contents to clipboard
-- [ ] Works on macOS, Linux, Windows
-- [ ] Right-click in Finder shows "Copy to Clipboard" option
-- [ ] All tests pass
-- [ ] Error messages are helpful
-
-## Implementation Order
-
-1. `src/error.rs` - Error types
-2. `src/file.rs` - File reading (write tests first!)
-3. `src/clipboard.rs` - Clipboard operations (write tests first!)
-4. `src/lib.rs` - Library exports
-5. `src/main.rs` - CLI
-6. Integration tests
-7. Quick Action workflow
-8. README with installation instructions
+- [ ] Update `Package.swift` to link Quartz framework
+- [ ] Add `import Quartz` to main.swift
+- [ ] Implement `isPDFFile()` function
+- [ ] Implement `renderPDFPage()` function
+- [ ] Implement `performPDFOCR()` function
+- [ ] Refactor `performOCR()` to route PDF vs image
+- [ ] Rename existing OCR function to `performImageOCR()`
+- [ ] Add page separators for multi-page output
+- [ ] Update Rust code comments in `src/file.rs`
+- [ ] Create multi-page test PDF
+- [ ] Test with existing rotated PDF (`tests/2025-12-12_12-11-14.pdf`)
+- [ ] Update README with multi-page PDF support
