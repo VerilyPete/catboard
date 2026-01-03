@@ -268,7 +268,7 @@ done</string>
 		<key>useAutomaticInputType</key>
 		<false/>
 		<key>workflowTypeIdentifier</key>
-		<string>com.apple.Automator.servicesMenu</string>
+		<string>com.apple.Automator.quickAction</string>
 	</dict>
 </dict>
 </plist>
