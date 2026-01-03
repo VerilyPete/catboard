@@ -69,25 +69,29 @@
 
 # Copy file contents to clipboard using catboard
 
-CATBOARD_PATH="/usr/local/bin/catboard"
+# Find catboard: Homebrew installs to /opt/homebrew/bin, pkg installer to /usr/local/bin
+if [ -x "/opt/homebrew/bin/catboard" ]; then
+    CATBOARD_PATH="/opt/homebrew/bin/catboard"
+elif [ -x "/usr/local/bin/catboard" ]; then
+    CATBOARD_PATH="/usr/local/bin/catboard"
+else
+    osascript -e "display notification \"catboard not found. Install with: brew install verilypete/tap/catboard\" with title \"Catboard\" sound name \"Basso\""
+    exit 1
+fi
 
 for f in "$@"; do
     if [ -f "$f" ]; then
-        if [ -x "$CATBOARD_PATH" ]; then
-            ERROR=$("$CATBOARD_PATH" -q "$f" 2>&amp;1)
-            if [ $? -eq 0 ]; then
-                osascript -e "display notification \"Copied contents to clipboard\" with title \"Catboard\" sound name \"Glass\""
-            else
-                # Extract just the error message, trim "Error: " prefix if present
-                ERROR=$(echo "$ERROR" | tail -1 | sed 's/^Error: //')
-                # Truncate long errors for notification (max ~100 chars)
-                if [ ${#ERROR} -gt 100 ]; then
-                    ERROR="${ERROR:0:97}..."
-                fi
-                osascript -e "display notification \"$ERROR\" with title \"Catboard\" sound name \"Basso\""
-            fi
+        ERROR=$("$CATBOARD_PATH" -q "$f" 2>&amp;1)
+        if [ $? -eq 0 ]; then
+            osascript -e "display notification \"Copied contents to clipboard\" with title \"Catboard\" sound name \"Glass\""
         else
-            osascript -e "display notification \"catboard not installed at $CATBOARD_PATH\" with title \"Catboard\" sound name \"Basso\""
+            # Extract just the error message, trim "Error: " prefix if present
+            ERROR=$(echo "$ERROR" | tail -1 | sed 's/^Error: //')
+            # Truncate long errors for notification (max ~100 chars)
+            if [ ${#ERROR} -gt 100 ]; then
+                ERROR="${ERROR:0:97}..."
+            fi
+            osascript -e "display notification \"$ERROR\" with title \"Catboard\" sound name \"Basso\""
         fi
     else
         osascript -e "display notification \"Not a file: $f\" with title \"Catboard\" sound name \"Basso\""
