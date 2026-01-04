@@ -111,8 +111,11 @@ public enum CatboardError: LocalizedError {
     case permissionDenied(URL)
     case binaryFile(URL)
     case fileTooLarge(URL, Int64)
+    case outputTooLarge(Int)
     case isDirectory(URL)
+    case notFileURL(URL)
     case extractionFailed(URL, String)
+    case ocrTimeout(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -125,10 +128,17 @@ public enum CatboardError: LocalizedError {
         case .fileTooLarge(let url, let size):
             let sizeMB = size / 1024 / 1024
             return "File too large (\(sizeMB)MB): \(url.lastPathComponent)"
+        case .outputTooLarge(let size):
+            let sizeMB = size / 1024 / 1024
+            return "Output too large (\(sizeMB)MB) for clipboard"
         case .isDirectory(let url):
             return "Cannot copy directory: \(url.lastPathComponent)"
+        case .notFileURL(let url):
+            return "Not a local file: \(url.absoluteString)"
         case .extractionFailed(_, let message):
             return message
+        case .ocrTimeout(let url):
+            return "OCR timed out: \(url.lastPathComponent)"
         }
     }
 }
@@ -145,11 +155,19 @@ public struct FileReader {
     /// Maximum bytes to check for binary content (null bytes)
     private static let binaryCheckSize = 8192
 
-    /// Maximum file size (50MB)
+    /// Maximum input file size (50MB)
     private static let maxFileSize: Int64 = 50 * 1024 * 1024
+
+    /// Maximum output size for clipboard (100MB)
+    public static let maxOutputSize = 100 * 1024 * 1024
 
     /// Read file contents, routing to appropriate handler based on type
     public static func readContents(of url: URL) throws -> String {
+        // Validate this is a file URL (not a network URL)
+        guard url.isFileURL else {
+            throw CatboardError.notFileURL(url)
+        }
+
         // Check file exists and is not a directory
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
@@ -217,6 +235,18 @@ public struct FileReader {
         if data.count >= 2 {
             let bom = Array(data.prefix(4))
 
+            // UTF-32 LE BOM: FF FE 00 00 (check before UTF-16 LE since it starts the same)
+            if data.count >= 4 && bom[0] == 0xFF && bom[1] == 0xFE && bom[2] == 0x00 && bom[3] == 0x00 {
+                if let text = String(data: data, encoding: .utf32LittleEndian) {
+                    return text
+                }
+            }
+            // UTF-32 BE BOM: 00 00 FE FF
+            if data.count >= 4 && bom[0] == 0x00 && bom[1] == 0x00 && bom[2] == 0xFE && bom[3] == 0xFF {
+                if let text = String(data: data, encoding: .utf32BigEndian) {
+                    return text
+                }
+            }
             // UTF-16 LE BOM: FF FE
             if bom[0] == 0xFF && bom[1] == 0xFE {
                 if let text = String(data: data, encoding: .utf16LittleEndian) {
@@ -229,25 +259,16 @@ public struct FileReader {
                     return text
                 }
             }
-            // UTF-32 LE BOM: FF FE 00 00
-            if data.count >= 4 && bom[0] == 0xFF && bom[1] == 0xFE && bom[2] == 0x00 && bom[3] == 0x00 {
-                if let text = String(data: data, encoding: .utf32LittleEndian) {
-                    return text
-                }
-            }
-            // UTF-32 BE BOM: 00 00 FE FF
-            if data.count >= 4 && bom[0] == 0x00 && bom[1] == 0x00 && bom[2] == 0xFE && bom[3] == 0xFF {
-                if let text = String(data: data, encoding: .utf32BigEndian) {
-                    return text
-                }
-            }
         }
 
         // Check first 8KB for null bytes (indicates binary file)
         let checkRange = 0..<min(binaryCheckSize, data.count)
         if data[checkRange].contains(0) {
-            // One more try: maybe it's UTF-16 without BOM
-            if let text = String(data: data, encoding: .utf16) {
+            // Try UTF-16 without BOM (try both byte orders)
+            if let text = String(data: data, encoding: .utf16LittleEndian) {
+                return text
+            }
+            if let text = String(data: data, encoding: .utf16BigEndian) {
                 return text
             }
             throw CatboardError.binaryFile(url)
@@ -327,6 +348,12 @@ public struct OCREngine {
     /// Maximum pages to process (memory safety)
     private static let maxPages = 100
 
+    /// Timeout for OCR operations (seconds)
+    private static let ocrTimeout: TimeInterval = 60.0
+
+    /// Unique page separator (unlikely to appear in real content)
+    private static let pageSeparator = "══════════ Page %d ══════════"
+
     /// Extract text from image or PDF using Vision OCR
     public static func extractText(from url: URL) throws -> String {
         if url.pathExtension.lowercased() == "pdf" {
@@ -347,7 +374,7 @@ public struct OCREngine {
             throw CatboardError.extractionFailed(url, "Could not convert image")
         }
 
-        let lines = try recognizeText(in: cgImage)
+        let lines = try recognizeTextWithTimeout(in: cgImage, url: url)
         let result = lines.joined(separator: "\n")
 
         if result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -386,22 +413,29 @@ public struct OCREngine {
                 }
 
                 guard let cgImage = renderPage(page) else {
-                    os_log("Could not render page %d", log: .ocr, type: .error, i + 1)
+                    os_log("Could not render page %d (CGContext creation failed)", log: .ocr, type: .error, i + 1)
                     failedPages.append(i + 1)
                     return
                 }
 
                 do {
-                    let pageText = try recognizeText(in: cgImage)
+                    let pageText = try recognizeTextWithTimeout(in: cgImage, url: url)
 
                     // Add page separator for multi-page documents
                     if i > 0 && !allText.isEmpty {
                         allText.append("")
-                        allText.append("--- Page \(i + 1) ---")
+                        allText.append(String(format: pageSeparator, i + 1))
                         allText.append("")
                     }
 
                     allText.append(contentsOf: pageText)
+                } catch let error as CatboardError {
+                    if case .ocrTimeout = error {
+                        os_log("OCR timed out for page %d", log: .ocr, type: .error, i + 1)
+                    } else {
+                        os_log("OCR failed for page %d: %{public}@", log: .ocr, type: .error, i + 1, error.localizedDescription)
+                    }
+                    failedPages.append(i + 1)
                 } catch {
                     os_log("OCR failed for page %d: %{public}@", log: .ocr, type: .error, i + 1, error.localizedDescription)
                     failedPages.append(i + 1)
@@ -431,7 +465,35 @@ public struct OCREngine {
         return result
     }
 
-    // MARK: - Vision Framework
+    // MARK: - Vision Framework with Timeout
+
+    private static func recognizeTextWithTimeout(in image: CGImage, url: URL) throws -> [String] {
+        var result: [String]?
+        var ocrError: Error?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                result = try recognizeText(in: image)
+            } catch {
+                ocrError = error
+            }
+            semaphore.signal()
+        }
+
+        let timeoutResult = semaphore.wait(timeout: .now() + ocrTimeout)
+
+        if timeoutResult == .timedOut {
+            os_log("OCR operation timed out after %{public}.0f seconds", log: .ocr, type: .error, ocrTimeout)
+            throw CatboardError.ocrTimeout(url)
+        }
+
+        if let error = ocrError {
+            throw error
+        }
+
+        return result ?? []
+    }
 
     private static func recognizeText(in image: CGImage) throws -> [String] {
         let request = VNRecognizeTextRequest()
@@ -463,6 +525,7 @@ public struct OCREngine {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
+            os_log("Failed to create CGContext for page rendering (width: %d, height: %d)", log: .ocr, type: .error, width, height)
             return nil
         }
 
@@ -485,23 +548,39 @@ import AppKit
 import os.log
 
 public struct Clipboard {
-    /// Copy text to the system clipboard (thread-safe)
-    public static func copy(_ text: String) {
+    /// Copy text to the system clipboard asynchronously with completion handler
+    public static func copy(_ text: String, completion: @escaping (Bool) -> Void) {
+        // Check output size before copying
+        if text.utf8.count > FileReader.maxOutputSize {
+            os_log("Output too large for clipboard: %d bytes", log: .clipboard, type: .error, text.utf8.count)
+            completion(false)
+            return
+        }
+
         // NSPasteboard MUST be accessed on main thread
         DispatchQueue.main.async {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            os_log("Copied %d characters to clipboard", log: .clipboard, type: .info, text.count)
+            let success = pasteboard.setString(text, forType: .string)
+            os_log("Copied %d characters to clipboard (success: %{public}@)", log: .clipboard, type: .info, text.count, String(success))
+            completion(success)
         }
     }
 
     /// Copy text synchronously (must be called from main thread)
-    public static func copySync(_ text: String) {
+    /// Returns false if output is too large
+    public static func copySync(_ text: String) -> Bool {
         assert(Thread.isMainThread, "copySync must be called from main thread")
+
+        // Check output size before copying
+        if text.utf8.count > FileReader.maxOutputSize {
+            os_log("Output too large for clipboard: %d bytes", log: .clipboard, type: .error, text.utf8.count)
+            return false
+        }
+
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        return pasteboard.setString(text, forType: .string)
     }
 
     /// Get current clipboard text (for testing)
@@ -527,14 +606,18 @@ import os.log
 
 class FinderSync: FIFinderSync {
 
+    /// Cached notification permission status
+    private var notificationPermissionGranted = false
+
     override init() {
         super.init()
 
         // Monitor all mounted volumes
         FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: "/")]
 
-        // Request notification permission
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        // Request notification permission and cache result
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
+            self?.notificationPermissionGranted = granted
             if let error = error {
                 os_log("Notification permission error: %{public}@", log: .ui, type: .error, error.localizedDescription)
             } else {
@@ -614,6 +697,16 @@ class FinderSync: FIFinderSync {
         }
 
         let url = items[0]
+
+        // Validate this is a file URL
+        guard url.isFileURL else {
+            showNotification(
+                message: "Not a local file",
+                success: false
+            )
+            return
+        }
+
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
         // Process on background thread to avoid blocking Finder
@@ -635,15 +728,30 @@ class FinderSync: FIFinderSync {
                 return
             }
 
-            // Copy on main thread and wait for completion before showing notification
-            DispatchQueue.main.sync {
-                Clipboard.copySync(text)
+            // Check output size
+            if text.utf8.count > FileReader.maxOutputSize {
+                let sizeMB = text.utf8.count / 1024 / 1024
+                showNotification(
+                    message: "Output too large (\(sizeMB)MB) for clipboard",
+                    success: false
+                )
+                return
             }
 
-            showNotification(
-                message: "Copied contents to clipboard",
-                success: true
-            )
+            // Copy asynchronously and show notification on completion
+            Clipboard.copy(text) { [weak self] success in
+                if success {
+                    self?.showNotification(
+                        message: "Copied contents to clipboard",
+                        success: true
+                    )
+                } else {
+                    self?.showNotification(
+                        message: "Failed to copy to clipboard",
+                        success: false
+                    )
+                }
+            }
         } catch {
             os_log("Error processing file: %{public}@", log: .ui, type: .error, error.localizedDescription)
 
@@ -663,6 +771,12 @@ class FinderSync: FIFinderSync {
     // MARK: - Notifications (using modern UserNotifications framework)
 
     private func showNotification(message: String, success: Bool) {
+        // Check if we have permission (cached from init)
+        guard notificationPermissionGranted else {
+            os_log("Cannot show notification: permission not granted", log: .ui, type: .info)
+            return
+        }
+
         let content = UNMutableNotificationContent()
         content.title = "Catboard"
         content.body = message
@@ -670,8 +784,13 @@ class FinderSync: FIFinderSync {
         if success {
             content.sound = .default
         } else {
-            // Use Basso sound for errors
-            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "Basso.aiff"))
+            // Use default critical sound as fallback (Basso might not exist)
+            if #available(macOS 12.0, *) {
+                content.sound = .defaultCritical
+            } else {
+                // Try Basso, fall back to default
+                content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "Basso.aiff"))
+            }
         }
 
         let request = UNNotificationRequest(
@@ -727,15 +846,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openExtensionsSettings() {
-        let url: URL
+        // Use optional binding to avoid force unwrap crash if Apple changes URL schemes
+        let urlString: String
         if #available(macOS 13.0, *) {
             // macOS Ventura and later use System Settings
-            url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences")!
+            urlString = "x-apple.systempreferences:com.apple.ExtensionsPreferences"
         } else {
             // Earlier versions use System Preferences
-            url = URL(string: "x-apple.systempreferences:com.apple.preference.extensions")!
+            urlString = "x-apple.systempreferences:com.apple.preference.extensions"
         }
-        NSWorkspace.shared.open(url)
+
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        } else {
+            os_log("Failed to create System Settings URL: %{public}@", type: .error, urlString)
+            // Fallback: open System Preferences app directly
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Preferences.app"))
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -826,6 +953,8 @@ spctl --assess --verbose build/CatboardFinder.app
     <key>method</key>
     <string>developer-id</string>
     <key>teamID</key>
+    <!-- Replace YOUR_TEAM_ID with your actual Apple Developer Team ID -->
+    <!-- Find it at: https://developer.apple.com/account -> Membership Details -->
     <string>YOUR_TEAM_ID</string>
 </dict>
 </plist>
@@ -902,12 +1031,14 @@ end
 ### Unit Tests (CatboardCore)
 
 - FileReader: text files, binary detection, routing, symlinks, directories
-- FileReader: encoding detection (UTF-8, UTF-16, Latin-1)
-- FileReader: file size limits
+- FileReader: encoding detection (UTF-8, UTF-16 LE/BE, Latin-1)
+- FileReader: file size limits, output size limits
+- FileReader: file URL validation (reject network URLs)
 - PDFExtractor: text PDFs, scanned PDFs, password-protected
 - OCREngine: various image formats, multi-page PDFs
+- OCREngine: timeout handling
 - OCREngine: memory management for large PDFs
-- Clipboard: copy/paste roundtrip, thread safety
+- Clipboard: copy/paste roundtrip, thread safety, size limits
 
 ### Integration Tests
 
@@ -916,6 +1047,8 @@ end
 - Various file types process correctly
 - Error notifications display properly
 - Multiple selection handling
+- Notification permission denied scenario
+- OCR timeout scenario
 
 ### Manual Testing
 
@@ -927,6 +1060,8 @@ end
 - Broken symlinks
 - Empty files
 - Files with unusual encodings
+- Very large output (test clipboard size limit)
+- Network URLs (should be rejected)
 
 ## Implementation Dependencies
 
@@ -945,13 +1080,21 @@ This plan focuses on what needs to be built, not when. Key dependencies:
 
 1. **Multiple file selection**: Reject with helpful message. Concatenating files has unclear UX for notifications and error handling.
 
-2. **Threading**: File processing on background queue, clipboard access on main queue (required by AppKit), notifications via UserNotifications framework.
+2. **Threading**: File processing on background queue, clipboard access on main queue (required by AppKit) with async completion handler, notifications via UserNotifications framework.
 
 3. **File type detection**: Use UTType (Uniform Type Identifiers) with fallback to extension-based detection for compatibility.
 
-4. **Notifications**: Use modern UserNotifications framework (NSUserNotification deprecated in macOS 11, removed in macOS 14).
+4. **Notifications**: Use modern UserNotifications framework (NSUserNotification deprecated in macOS 11, removed in macOS 14). Cache permission status and gracefully handle denied permissions.
 
-5. **System Settings URL**: Handle both pre-Ventura (System Preferences) and post-Ventura (System Settings) URL schemes.
+5. **System Settings URL**: Handle both pre-Ventura (System Preferences) and post-Ventura (System Settings) URL schemes with safe optional binding.
+
+6. **Size limits**: 50MB input file limit, 100MB output limit for clipboard. Prevents memory issues and clipboard hangs.
+
+7. **OCR timeout**: 60 second timeout per OCR operation prevents indefinite hangs on complex images.
+
+8. **Page separator**: Use distinctive unicode separator (`══════════`) to avoid conflicts with document content.
+
+9. **Notification sounds**: Use system default sounds with fallback for compatibility across macOS versions.
 
 ### Open Questions
 
