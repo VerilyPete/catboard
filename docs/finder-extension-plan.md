@@ -112,6 +112,7 @@ public enum CatboardError: LocalizedError {
     case binaryFile(URL)
     case fileTooLarge(URL, Int64)
     case outputTooLarge(Int)
+    case imageTooLarge(URL, Int, Int)
     case isDirectory(URL)
     case notFileURL(URL)
     case extractionFailed(URL, String)
@@ -131,6 +132,9 @@ public enum CatboardError: LocalizedError {
         case .outputTooLarge(let size):
             let sizeMB = size / 1024 / 1024
             return "Output too large (\(sizeMB)MB) for clipboard"
+        case .imageTooLarge(let url, let width, let height):
+            let mpx = (width * height) / 1_000_000
+            return "Image too large (\(mpx)MP): \(url.lastPathComponent)"
         case .isDirectory(let url):
             return "Cannot copy directory: \(url.lastPathComponent)"
         case .notFileURL(let url):
@@ -363,6 +367,9 @@ public struct OCREngine {
         }
     }
 
+    /// Maximum image size in pixels (50 megapixels)
+    private static let maxImagePixels = 50_000_000
+
     // MARK: - Image OCR
 
     private static func extractFromImage(_ url: URL) throws -> String {
@@ -372,6 +379,12 @@ public struct OCREngine {
 
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw CatboardError.extractionFailed(url, "Could not convert image")
+        }
+
+        // Validate image dimensions to prevent memory exhaustion
+        let pixels = cgImage.width * cgImage.height
+        if pixels > maxImagePixels {
+            throw CatboardError.imageTooLarge(url, cgImage.width, cgImage.height)
         }
 
         let lines = try recognizeTextWithTimeout(in: cgImage, url: url)
@@ -516,6 +529,12 @@ public struct OCREngine {
         let width = Int(rect.width * scale)
         let height = Int(rect.height * scale)
 
+        // Validate page dimensions to prevent memory exhaustion
+        if width * height > maxImagePixels {
+            os_log("Page dimensions too large: %dx%d (%d pixels)", log: .ocr, type: .error, width, height, width * height)
+            return nil
+        }
+
         guard let context = CGContext(
             data: nil,
             width: width,
@@ -606,8 +625,13 @@ import os.log
 
 class FinderSync: FIFinderSync {
 
-    /// Cached notification permission status
-    private var notificationPermissionGranted = false
+    /// Thread-safe cached notification permission status
+    private let permissionQueue = DispatchQueue(label: "com.verilypete.catboard.permission")
+    private var _notificationPermissionGranted = false
+    private var notificationPermissionGranted: Bool {
+        get { permissionQueue.sync { _notificationPermissionGranted } }
+        set { permissionQueue.sync { _notificationPermissionGranted = newValue } }
+    }
 
     override init() {
         super.init()
@@ -615,7 +639,7 @@ class FinderSync: FIFinderSync {
         // Monitor all mounted volumes
         FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: "/")]
 
-        // Request notification permission and cache result
+        // Request notification permission and cache result (thread-safe)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
             self?.notificationPermissionGranted = granted
             if let error = error {
@@ -814,6 +838,7 @@ class FinderSync: FIFinderSync {
 import Cocoa
 import FinderSync
 import UserNotifications
+import os.log
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -859,9 +884,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         } else {
-            os_log("Failed to create System Settings URL: %{public}@", type: .error, urlString)
-            // Fallback: open System Preferences app directly
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Preferences.app"))
+            os_log("Failed to create System Settings URL: %{public}@", log: .ui, type: .error, urlString)
+            // Fallback: open Settings app directly (path differs by macOS version)
+            let settingsPath: String
+            if #available(macOS 13.0, *) {
+                settingsPath = "/System/Applications/System Settings.app"
+            } else {
+                settingsPath = "/System/Applications/System Preferences.app"
+            }
+            NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
         }
     }
 
@@ -1038,6 +1069,7 @@ end
 - OCREngine: various image formats, multi-page PDFs
 - OCREngine: timeout handling
 - OCREngine: memory management for large PDFs
+- OCREngine: image dimension validation (reject >50MP images)
 - Clipboard: copy/paste roundtrip, thread safety, size limits
 
 ### Integration Tests
@@ -1062,6 +1094,8 @@ end
 - Files with unusual encodings
 - Very large output (test clipboard size limit)
 - Network URLs (should be rejected)
+- Very high resolution images (test 50MP limit)
+- Large PDF pages (test dimension validation)
 
 ## Implementation Dependencies
 
@@ -1095,6 +1129,10 @@ This plan focuses on what needs to be built, not when. Key dependencies:
 8. **Page separator**: Use distinctive unicode separator (`══════════`) to avoid conflicts with document content.
 
 9. **Notification sounds**: Use system default sounds with fallback for compatibility across macOS versions.
+
+10. **Image dimension limit**: 50 megapixels maximum to prevent memory exhaustion from decompressed image data.
+
+11. **Thread safety**: Use dispatch queue synchronization for shared state (notification permission flag) accessed from multiple threads.
 
 ### Open Questions
 
