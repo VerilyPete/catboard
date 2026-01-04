@@ -352,6 +352,9 @@ public struct OCREngine {
     /// Maximum pages to process (memory safety)
     private static let maxPages = 100
 
+    /// Maximum image size in pixels (50 megapixels)
+    private static let maxImagePixels = 50_000_000
+
     /// Timeout for OCR operations (seconds)
     private static let ocrTimeout: TimeInterval = 60.0
 
@@ -366,9 +369,6 @@ public struct OCREngine {
             return try extractFromImage(url)
         }
     }
-
-    /// Maximum image size in pixels (50 megapixels)
-    private static let maxImagePixels = 50_000_000
 
     // MARK: - Image OCR
 
