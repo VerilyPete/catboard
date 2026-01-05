@@ -24,12 +24,13 @@
 
 ## Prerequisites
 
-Before implementing tests, add a test target to the Xcode project:
+The test target `CatboardCoreTests` was created in Phase 1.
 
-1. File → New → Target → macOS → Unit Testing Bundle
-2. Product Name: `CatboardCoreTests`
-3. Target to be Tested: `CatboardCore`
-4. Link `CatboardCore.framework` to test target
+Before implementing tests:
+
+1. Delete the auto-generated `CatboardCoreTests.swift` placeholder from Phase 1
+2. Ensure `CatboardCore.framework` is linked to the test target
+3. Create the `Fixtures` folder for test data files
 
 ---
 
