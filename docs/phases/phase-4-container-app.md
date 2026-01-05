@@ -12,7 +12,7 @@
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `CatboardFinder/AppDelegate.swift` | App entry point, notification permission, enable extension dialog | ~70 |
+| `CatboardFinder/AppDelegate.swift` | App entry point, notification permission, enable extension dialog | ~55 |
 
 ---
 
@@ -23,8 +23,7 @@
 **Key behaviors:**
 - Requests notification permission on launch
 - Shows dialog explaining how to enable extension
-- Opens System Settings/Preferences to Extensions pane
-- Handles both pre-Ventura and post-Ventura URL schemes
+- Opens System Settings to Extensions pane
 - Safe URL handling (no force unwraps)
 - Quits after last window closed
 
@@ -69,28 +68,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openExtensionsSettings() {
-        // Use optional binding to avoid force unwrap crash if Apple changes URL schemes
-        let urlString: String
-        if #available(macOS 13.0, *) {
-            // macOS Ventura and later use System Settings
-            urlString = "x-apple.systempreferences:com.apple.ExtensionsPreferences"
-        } else {
-            // Earlier versions use System Preferences
-            urlString = "x-apple.systempreferences:com.apple.preference.extensions"
-        }
+        // macOS 13+ uses System Settings
+        let urlString = "x-apple.systempreferences:com.apple.ExtensionsPreferences"
 
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         } else {
             os_log("Failed to create System Settings URL: %{public}@", log: .ui, type: .error, urlString)
-            // Fallback: open Settings app directly (path differs by macOS version)
-            let settingsPath: String
-            if #available(macOS 13.0, *) {
-                settingsPath = "/System/Applications/System Settings.app"
-            } else {
-                settingsPath = "/System/Applications/System Preferences.app"
-            }
-            NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
+            // Fallback: open System Settings app directly
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         }
     }
 
@@ -114,9 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 1. App launches without errors
 2. Alert dialog appears on launch
-3. "Open System Settings" button opens correct settings pane:
-   - macOS 13+: System Settings → Extensions
-   - macOS 11-12: System Preferences → Extensions
+3. "Open System Settings" button opens System Settings → Extensions
 4. "Done" button closes the app
 5. App quits after dialog is dismissed
 

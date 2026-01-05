@@ -237,7 +237,7 @@ cask "catboard-finder" do
   desc "Finder extension to copy file contents to clipboard"
   homepage "https://github.com/VerilyPete/catboard"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: ">= :ventura"
 
   app "CatboardFinder.app"
 

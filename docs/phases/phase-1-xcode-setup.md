@@ -35,7 +35,7 @@ Create the Xcode project using Xcode's wizards:
    - Delete any generated ContentView.swift or Main.storyboard
    - Replace generated Swift files with the placeholders below
 
-**Minimum Xcode Version:** Xcode 13.0 or later (for macOS 11.0 deployment target)
+**Minimum Xcode Version:** Xcode 14.0 or later (for macOS 13.0 deployment target)
 
 ---
 
@@ -258,7 +258,7 @@ Apply these settings to all targets:
 
 | Setting | Value |
 |---------|-------|
-| `MACOSX_DEPLOYMENT_TARGET` | `11.0` |
+| `MACOSX_DEPLOYMENT_TARGET` | `13.0` |
 | `SWIFT_VERSION` | `5.0` |
 | `ENABLE_HARDENED_RUNTIME` | `YES` |
 
@@ -350,7 +350,7 @@ Apply these settings to all targets:
 3. Building the CatboardFinder scheme builds all targets
 4. Framework is embedded in both app and extension
 5. Entitlements files are correctly associated with targets
-6. Deployment target is macOS 11.0
+6. Deployment target is macOS 13.0
 
 ---
 

@@ -78,15 +78,10 @@ class FinderSync: FIFinderSync {
     }
 
     override var toolbarItemImage: NSImage {
-        if #available(macOS 11.0, *) {
-            if let symbol = NSImage(systemSymbolName: "doc.on.clipboard",
-                                   accessibilityDescription: "Copy to Clipboard") {
-                return symbol
-            }
-        }
-        // Safe fallbacks - no force unwrap
-        return NSImage(named: NSImage.multipleDocumentsName)
-            ?? NSImage(named: NSImage.actionTemplateName)
+        // SF Symbols available on macOS 13+
+        return NSImage(systemSymbolName: "doc.on.clipboard",
+                      accessibilityDescription: "Copy to Clipboard")
+            ?? NSImage(named: NSImage.multipleDocumentsName)
             ?? NSImage()
     }
 
@@ -106,10 +101,8 @@ class FinderSync: FIFinderSync {
             keyEquivalent: ""
         )
 
-        if #available(macOS 11.0, *) {
-            item.image = NSImage(systemSymbolName: "doc.on.clipboard",
-                                accessibilityDescription: nil)
-        }
+        item.image = NSImage(systemSymbolName: "doc.on.clipboard",
+                            accessibilityDescription: nil)
 
         return menu
     }
@@ -220,17 +213,8 @@ class FinderSync: FIFinderSync {
         content.title = "Catboard"
         content.body = message
 
-        if success {
-            content.sound = .default
-        } else {
-            // Use default critical sound as fallback (Basso might not exist)
-            if #available(macOS 12.0, *) {
-                content.sound = .defaultCritical
-            } else {
-                // Try Basso, fall back to default
-                content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "Basso.aiff"))
-            }
-        }
+        // macOS 13+ supports defaultCritical
+        content.sound = success ? .default : .defaultCritical
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

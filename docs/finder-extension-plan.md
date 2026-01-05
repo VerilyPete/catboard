@@ -937,7 +937,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 - **Hardened Runtime**: Enabled
 - **Code Signing Identity**: Developer ID Application (for distribution)
 - **Development Team**: Must be set
-- **Deployment Target**: macOS 11.0 (for SF Symbols and UserNotifications)
+- **Deployment Target**: macOS 13.0 (Ventura and later, Apple Silicon)
 
 ## Distribution
 
@@ -1033,7 +1033,7 @@ cask "catboard-finder" do
   name "Catboard Finder Extension"
   homepage "https://github.com/VerilyPete/catboard"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: ">= :ventura"
 
   app "CatboardFinder.app"
 
@@ -1118,9 +1118,9 @@ This plan focuses on what needs to be built, not when. Key dependencies:
 
 3. **File type detection**: Use UTType (Uniform Type Identifiers) with fallback to extension-based detection for compatibility.
 
-4. **Notifications**: Use modern UserNotifications framework (NSUserNotification deprecated in macOS 11, removed in macOS 14). Cache permission status and gracefully handle denied permissions.
+4. **Notifications**: Use UserNotifications framework. Cache permission status and gracefully handle denied permissions.
 
-5. **System Settings URL**: Handle both pre-Ventura (System Preferences) and post-Ventura (System Settings) URL schemes with safe optional binding.
+5. **System Settings URL**: Use macOS 13+ System Settings URL scheme with safe optional binding.
 
 6. **Size limits**: 50MB input file limit, 100MB output limit for clipboard. Prevents memory issues and clipboard hangs.
 
