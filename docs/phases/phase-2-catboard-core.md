@@ -622,5 +622,5 @@ public struct Clipboard {
 
 - Modify FinderSync.swift (Phase 3)
 - Modify AppDelegate.swift (Phase 4)
-- Add unit test targets (can be added later)
+- Implement unit tests (Phase 2.5)
 - Configure code signing (Phase 5)

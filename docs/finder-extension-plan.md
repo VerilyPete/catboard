@@ -663,15 +663,10 @@ class FinderSync: FIFinderSync {
     }
 
     override var toolbarItemImage: NSImage {
-        if #available(macOS 11.0, *) {
-            if let symbol = NSImage(systemSymbolName: "doc.on.clipboard",
-                                   accessibilityDescription: "Copy to Clipboard") {
-                return symbol
-            }
-        }
-        // Safe fallbacks - no force unwrap
-        return NSImage(named: NSImage.multipleDocumentsName)
-            ?? NSImage(named: NSImage.actionTemplateName)
+        // SF Symbols available on macOS 13+
+        return NSImage(systemSymbolName: "doc.on.clipboard",
+                      accessibilityDescription: "Copy to Clipboard")
+            ?? NSImage(named: NSImage.multipleDocumentsName)
             ?? NSImage()
     }
 
@@ -691,10 +686,8 @@ class FinderSync: FIFinderSync {
             keyEquivalent: ""
         )
 
-        if #available(macOS 11.0, *) {
-            item.image = NSImage(systemSymbolName: "doc.on.clipboard",
-                                accessibilityDescription: nil)
-        }
+        item.image = NSImage(systemSymbolName: "doc.on.clipboard",
+                            accessibilityDescription: nil)
 
         return menu
     }
@@ -805,17 +798,8 @@ class FinderSync: FIFinderSync {
         content.title = "Catboard"
         content.body = message
 
-        if success {
-            content.sound = .default
-        } else {
-            // Use default critical sound as fallback (Basso might not exist)
-            if #available(macOS 12.0, *) {
-                content.sound = .defaultCritical
-            } else {
-                // Try Basso, fall back to default
-                content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "Basso.aiff"))
-            }
-        }
+        // macOS 13+ supports defaultCritical
+        content.sound = success ? .default : .defaultCritical
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
@@ -836,7 +820,6 @@ class FinderSync: FIFinderSync {
 
 ```swift
 import Cocoa
-import FinderSync
 import UserNotifications
 import os.log
 
@@ -871,28 +854,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openExtensionsSettings() {
-        // Use optional binding to avoid force unwrap crash if Apple changes URL schemes
-        let urlString: String
-        if #available(macOS 13.0, *) {
-            // macOS Ventura and later use System Settings
-            urlString = "x-apple.systempreferences:com.apple.ExtensionsPreferences"
-        } else {
-            // Earlier versions use System Preferences
-            urlString = "x-apple.systempreferences:com.apple.preference.extensions"
-        }
+        // macOS 13+ uses System Settings
+        let urlString = "x-apple.systempreferences:com.apple.ExtensionsPreferences"
 
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         } else {
             os_log("Failed to create System Settings URL: %{public}@", log: .ui, type: .error, urlString)
-            // Fallback: open Settings app directly (path differs by macOS version)
-            let settingsPath: String
-            if #available(macOS 13.0, *) {
-                settingsPath = "/System/Applications/System Settings.app"
-            } else {
-                settingsPath = "/System/Applications/System Preferences.app"
-            }
-            NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
+            // Fallback: open System Settings app directly
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         }
     }
 

@@ -1,6 +1,6 @@
 # Phase 1: Xcode Project Setup
 
-**Goal:** Create the Xcode project with all three targets configured.
+**Goal:** Create the Xcode project with all four targets configured.
 
 **Dependencies:** None
 
@@ -31,7 +31,13 @@ Create the Xcode project using Xcode's wizards:
    - Choose macOS → Framework
    - Product Name: `CatboardCore`
 
-4. **Clean up generated files:**
+4. **Add the Test target:**
+   - File → New → Target
+   - Choose macOS → Unit Testing Bundle
+   - Product Name: `CatboardCoreTests`
+   - Target to be Tested: `CatboardCore`
+
+5. **Clean up generated files:**
    - Delete any generated ContentView.swift or Main.storyboard
    - Replace generated Swift files with the placeholders below
 
@@ -43,7 +49,7 @@ Create the Xcode project using Xcode's wizards:
 
 | File | Purpose |
 |------|---------|
-| `swift/CatboardFinder/CatboardFinder.xcodeproj` | Xcode project with three targets |
+| `swift/CatboardFinder/CatboardFinder.xcodeproj` | Xcode project with four targets |
 | `swift/CatboardFinder/CatboardFinder/Info.plist` | Container app metadata |
 | `swift/CatboardFinder/CatboardFinder/CatboardFinder.entitlements` | App sandbox entitlements |
 | `swift/CatboardFinder/CatboardFinder/AppDelegate.swift` | Placeholder (implemented in Phase 4) |
@@ -53,6 +59,7 @@ Create the Xcode project using Xcode's wizards:
 | `swift/CatboardFinder/FinderExtension/FinderSync.swift` | Placeholder (implemented in Phase 3) |
 | `swift/CatboardFinder/CatboardCore/Info.plist` | Framework metadata |
 | `swift/CatboardFinder/CatboardCore/CatboardCore.h` | Framework umbrella header |
+| `swift/CatboardFinder/CatboardCoreTests/CatboardCoreTests.swift` | Test target placeholder |
 
 ---
 
@@ -71,9 +78,11 @@ swift/CatboardFinder/
 │   ├── FinderSync.swift               # Placeholder: import FinderSync; class FinderSync: FIFinderSync {}
 │   ├── FinderSync.entitlements
 │   └── Info.plist
-└── CatboardCore/                      # Shared framework target
-    ├── CatboardCore.h
-    └── Info.plist
+├── CatboardCore/                      # Shared framework target
+│   ├── CatboardCore.h
+│   └── Info.plist
+└── CatboardCoreTests/                 # Unit test target
+    └── CatboardCoreTests.swift        # Placeholder test file
 ```
 
 ---
@@ -346,11 +355,13 @@ Apply these settings to all targets:
 ## Success Criteria
 
 1. Project opens in Xcode without errors
-2. All three targets are visible in the project navigator
+2. All four targets are visible in the project navigator
 3. Building the CatboardFinder scheme builds all targets
 4. Framework is embedded in both app and extension
-5. Entitlements files are correctly associated with targets
-6. Deployment target is macOS 13.0
+5. Test target links against CatboardCore framework
+6. Entitlements files are correctly associated with targets
+7. Deployment target is macOS 13.0
+8. Running tests (Cmd+U) shows placeholder test passing
 
 ---
 
@@ -358,5 +369,6 @@ Apply these settings to all targets:
 
 - Implement actual Swift code beyond placeholders
 - Add Swift files to CatboardCore (Phase 2)
+- Implement actual tests (Phase 2.5)
 - Configure code signing identities (Phase 5)
 - Create app icons (optional, can use placeholder)
