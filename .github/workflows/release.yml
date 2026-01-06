@@ -161,11 +161,13 @@ jobs:
           echo "Using signing identity: $IDENTITY"
 
           # Build WITHOUT signing first (we'll sign manually)
+          # Build only for arm64 to avoid universal binary signing issues
           xcodebuild build \
             -project CatboardFinder.xcodeproj \
             -scheme CatboardFinder \
             -configuration Release \
             -derivedDataPath build/DerivedData \
+            -arch arm64 \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
