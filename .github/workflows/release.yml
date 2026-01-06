@@ -160,77 +160,66 @@ jobs:
           fi
           echo "Using signing identity: $IDENTITY"
 
-          # Build WITHOUT signing first (we'll sign manually)
-          # Force arm64-only build
-          xcodebuild build \
+          # Archive with full signing using Developer ID
+          xcodebuild archive \
             -project CatboardFinder.xcodeproj \
             -scheme CatboardFinder \
             -configuration Release \
-            -derivedDataPath build/DerivedData \
+            -archivePath build/CatboardFinder.xcarchive \
             ARCHS=arm64 \
             VALID_ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
 
-          # Get the built app path
-          APP_PATH="build/DerivedData/Build/Products/Release/CatboardFinder.app"
+          # Export with Developer ID method
+          cat > build/ExportOptions.plist << EXPORTOPTS
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          EXPORTOPTS
+
+          xcodebuild -exportArchive \
+            -archivePath build/CatboardFinder.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/export
+
+          APP_PATH="build/export/CatboardFinder.app"
 
           # Debug: Check what architectures were built
           echo "=== Binary architectures ==="
           file "$APP_PATH/Contents/MacOS/CatboardFinder"
           lipo -info "$APP_PATH/Contents/MacOS/CatboardFinder" || true
-          file "$APP_PATH/Contents/Frameworks/CatboardCore.framework/CatboardCore"
-          lipo -info "$APP_PATH/Contents/Frameworks/CatboardCore.framework/CatboardCore" || true
 
-          # Sign everything from innermost to outermost
-          echo "=== Signing with Developer ID ==="
-
-          # 1. Sign the framework
-          echo "Signing CatboardCore.framework..."
-          codesign --force --options runtime --timestamp \
-            --sign "$IDENTITY" \
-            "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
-
-          # 2. Sign the extension with entitlements
-          echo "Signing FinderExtension.appex..."
-          codesign --force --options runtime --timestamp \
-            --sign "$IDENTITY" \
-            --entitlements "FinderExtension/FinderSync.entitlements" \
-            "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
-
-          # 3. Sign the main app with entitlements
-          echo "Signing CatboardFinder.app..."
-          codesign --force --options runtime --timestamp \
-            --sign "$IDENTITY" \
-            --entitlements "CatboardFinder/CatboardFinder.entitlements" \
-            "$APP_PATH"
-
-          # Verify all signatures
+          # Verify signatures
           echo "=== Verifying signatures ==="
-          echo "Framework:"
-          codesign --verify --strict --verbose=2 "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
-          echo "Extension:"
-          codesign --verify --strict --verbose=2 "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
-          echo "Main app (deep):"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
           # Show signature details
           echo "=== Signature details ==="
           codesign -dvv "$APP_PATH"
+          codesign -dvv "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
+          codesign -dvv "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
-          # Check entitlements were applied
+          # Check entitlements
           echo "=== Extension entitlements ==="
           codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
-          # Use ditto to preserve code signatures when copying
+          # Copy to release directory
           mkdir -p ../../target/${{ matrix.target }}/release
           ditto "$APP_PATH" "../../target/${{ matrix.target }}/release/CatboardFinder.app"
-
-          # Verify signature survived the copy
-          echo "=== Verifying signature after copy ==="
-          codesign --verify --deep --strict --verbose=2 "../../target/${{ matrix.target }}/release/CatboardFinder.app"
 
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
