@@ -203,6 +203,26 @@ jobs:
           file "$APP_PATH/Contents/MacOS/CatboardFinder"
           lipo -info "$APP_PATH/Contents/MacOS/CatboardFinder" || true
 
+          # Check if entitlements were applied to extension
+          echo "=== Extension entitlements after export ==="
+          codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+          # Re-sign extension with sandbox entitlements if missing
+          ENTITLEMENTS=$(codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex" 2>&1)
+          if ! echo "$ENTITLEMENTS" | grep -q "app-sandbox"; then
+            echo "Sandbox entitlement missing, re-signing extension..."
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              --entitlements "FinderExtension/FinderSync.entitlements" \
+              "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+            # Re-sign main app to update seal
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              --entitlements "CatboardFinder/CatboardFinder.entitlements" \
+              "$APP_PATH"
+          fi
+
           # Verify signatures
           echo "=== Verifying signatures ==="
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
@@ -214,7 +234,7 @@ jobs:
           codesign -dvv "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
           # Check entitlements
-          echo "=== Extension entitlements ==="
+          echo "=== Extension entitlements (final) ==="
           codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
           # Copy to release directory
