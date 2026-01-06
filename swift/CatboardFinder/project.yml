@@ -14,6 +14,7 @@ settings:
     # Consistent code signing across all targets
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
+    DEVELOPMENT_TEAM: N9F7839KSX
 
 targets:
   # Main container app
