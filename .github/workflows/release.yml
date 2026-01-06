@@ -161,19 +161,28 @@ jobs:
           echo "Using signing identity: $IDENTITY"
 
           # Build WITHOUT signing first (we'll sign manually)
-          # Build only for arm64 to avoid universal binary signing issues
+          # Force arm64-only build
           xcodebuild build \
             -project CatboardFinder.xcodeproj \
             -scheme CatboardFinder \
             -configuration Release \
             -derivedDataPath build/DerivedData \
-            -arch arm64 \
+            ARCHS=arm64 \
+            VALID_ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
           # Get the built app path
           APP_PATH="build/DerivedData/Build/Products/Release/CatboardFinder.app"
+
+          # Debug: Check what architectures were built
+          echo "=== Binary architectures ==="
+          file "$APP_PATH/Contents/MacOS/CatboardFinder"
+          lipo -info "$APP_PATH/Contents/MacOS/CatboardFinder" || true
+          file "$APP_PATH/Contents/Frameworks/CatboardCore.framework/CatboardCore"
+          lipo -info "$APP_PATH/Contents/Frameworks/CatboardCore.framework/CatboardCore" || true
 
           # Sign everything from innermost to outermost
           echo "=== Signing with Developer ID ==="
@@ -215,8 +224,13 @@ jobs:
           echo "=== Extension entitlements ==="
           codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
-          # Copy to release directory
-          cp -r "$APP_PATH" ../../target/${{ matrix.target }}/release/
+          # Use ditto to preserve code signatures when copying
+          mkdir -p ../../target/${{ matrix.target }}/release
+          ditto "$APP_PATH" "../../target/${{ matrix.target }}/release/CatboardFinder.app"
+
+          # Verify signature survived the copy
+          echo "=== Verifying signature after copy ==="
+          codesign --verify --deep --strict --verbose=2 "../../target/${{ matrix.target }}/release/CatboardFinder.app"
 
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
