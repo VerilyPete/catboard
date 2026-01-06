@@ -281,19 +281,23 @@ jobs:
               xcodebuild build \
                 -scheme CatboardFinder \
                 -configuration Release \
-                -destination 'platform=macOS' \
+                -destination 'platform=macOS,arch=arm64' \
                 -derivedDataPath build \
+                ARCHS=arm64 \
+                ONLY_ACTIVE_ARCH=NO \
                 CODE_SIGN_IDENTITY="$IDENTITY" \
                 CODE_SIGN_STYLE=Manual \
                 DEVELOPMENT_TEAM=N9F7839KSX \
+                CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
                 OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
             else
               echo "::warning::No Developer ID Application certificate found, building unsigned"
               xcodebuild build \
                 -scheme CatboardFinder \
                 -configuration Release \
-                -destination 'platform=macOS' \
+                -destination 'platform=macOS,arch=arm64' \
                 -derivedDataPath build \
+                ARCHS=arm64 \
                 CODE_SIGN_IDENTITY="-" \
                 CODE_SIGNING_REQUIRED=NO
             fi
@@ -302,8 +306,9 @@ jobs:
             xcodebuild build \
               -scheme CatboardFinder \
               -configuration Release \
-              -destination 'platform=macOS' \
+              -destination 'platform=macOS,arch=arm64' \
               -derivedDataPath build \
+              ARCHS=arm64 \
               CODE_SIGN_IDENTITY="-" \
               CODE_SIGNING_REQUIRED=NO
           fi
