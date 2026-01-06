@@ -34,8 +34,10 @@ targets:
     dependencies:
       - target: CatboardCore
         embed: true
+        codeSign: true
       - target: FinderExtension
         embed: true
+        codeSign: true
     entitlements:
       path: CatboardFinder/CatboardFinder.entitlements
 
