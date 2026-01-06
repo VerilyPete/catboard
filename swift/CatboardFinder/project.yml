@@ -38,6 +38,8 @@ targets:
       - target: FinderExtension
         embed: true
         codeSign: true
+        copyPhase:
+          destination: plugins
     entitlements:
       path: CatboardFinder/CatboardFinder.entitlements
 
