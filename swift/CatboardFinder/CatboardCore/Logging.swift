@@ -1,6 +1,6 @@
 import os.log
 
-extension OSLog {
+public extension OSLog {
     private static let subsystem = "com.verilypete.catboard.finder"
 
     static let fileReader = OSLog(subsystem: subsystem, category: "FileReader")
