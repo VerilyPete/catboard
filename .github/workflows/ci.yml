@@ -65,3 +65,39 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  swift-finder:
+    name: Swift Finder Extension
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: swift/CatboardFinder
+        run: xcodegen generate
+
+      - name: Build CatboardFinder (Debug)
+        working-directory: swift/CatboardFinder
+        run: |
+          xcodebuild build \
+            -scheme CatboardFinder \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run CatboardCore tests
+        working-directory: swift/CatboardFinder
+        run: |
+          xcodebuild test \
+            -scheme CatboardFinder \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO

@@ -255,6 +255,167 @@ jobs:
           # 4. Gatekeeper will verify the notarization online when users run the binary
           echo "::notice::Notarization complete. Binary will pass Gatekeeper (verified online)."
 
+      - name: Install xcodegen
+        if: runner.os == 'macOS'
+        run: brew install xcodegen
+
+      - name: Build CatboardFinder app
+        if: runner.os == 'macOS'
+        env:
+          SIGNING_ENABLED: ${{ env.SIGNING_ENABLED }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
+        run: |
+          set -euo pipefail
+          cd swift/CatboardFinder
+
+          # Generate Xcode project
+          xcodegen generate
+
+          # Find signing identity if available
+          if [ "${SIGNING_ENABLED:-false}" = "true" ]; then
+            IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
+              grep "Developer ID Application" | head -1 | awk -F '"' '{print $2}')
+
+            if [ -n "$IDENTITY" ]; then
+              echo "Building with code signing identity: $IDENTITY"
+              xcodebuild build \
+                -scheme CatboardFinder \
+                -configuration Release \
+                -destination 'platform=macOS,arch=arm64' \
+                -derivedDataPath build \
+                ARCHS=arm64 \
+                ONLY_ACTIVE_ARCH=NO \
+                CODE_SIGN_IDENTITY="$IDENTITY" \
+                CODE_SIGN_STYLE=Manual \
+                DEVELOPMENT_TEAM=N9F7839KSX \
+                CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+                OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
+            else
+              echo "::warning::No Developer ID Application certificate found, building unsigned"
+              xcodebuild build \
+                -scheme CatboardFinder \
+                -configuration Release \
+                -destination 'platform=macOS,arch=arm64' \
+                -derivedDataPath build \
+                ARCHS=arm64 \
+                CODE_SIGN_IDENTITY="-" \
+                CODE_SIGNING_REQUIRED=NO
+            fi
+          else
+            echo "Building without code signing..."
+            xcodebuild build \
+              -scheme CatboardFinder \
+              -configuration Release \
+              -destination 'platform=macOS,arch=arm64' \
+              -derivedDataPath build \
+              ARCHS=arm64 \
+              CODE_SIGN_IDENTITY="-" \
+              CODE_SIGNING_REQUIRED=NO
+          fi
+
+          # Find and copy the built app
+          APP_PATH=$(find build -name "CatboardFinder.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::CatboardFinder.app not found in build output"
+            exit 1
+          fi
+
+          echo "Built app at: $APP_PATH"
+          cp -R "$APP_PATH" ../../CatboardFinder.app
+          echo "FINDER_APP_PATH=CatboardFinder.app" >> $GITHUB_ENV
+
+      - name: Notarize CatboardFinder app
+        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          # Skip if notarization credentials not configured
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_ID_PASSWORD:-}" ]; then
+            echo "::notice::Notarization skipped - APPLE_ID or APPLE_ID_PASSWORD not configured"
+            exit 0
+          fi
+
+          APP_PATH="${FINDER_APP_PATH}"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::warning::CatboardFinder.app not found, skipping notarization"
+            exit 0
+          fi
+
+          # Verify code signatures before notarization
+          echo "=== Verifying code signatures before notarization ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" || {
+            echo "::error::Code signature verification failed"
+            codesign -dvvv "$APP_PATH"
+            exit 1
+          }
+
+          # Check for hardened runtime
+          echo "=== Checking hardened runtime ==="
+          codesign -d --verbose=4 "$APP_PATH" 2>&1 | grep -i runtime || echo "Warning: runtime flag may not be set"
+
+          # Create ZIP for notarization
+          echo "Creating ZIP for notarization..."
+          ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
+
+          # Submit and capture output
+          echo "Submitting CatboardFinder for notarization..."
+          SUBMIT_OUTPUT=$(xcrun notarytool submit CatboardFinder.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait \
+            --timeout 30m 2>&1) || true
+
+          echo "$SUBMIT_OUTPUT"
+
+          # Extract submission ID
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+          echo "Submission ID: $SUBMISSION_ID"
+
+          # Check if notarization succeeded
+          if echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
+            echo "::notice::Notarization accepted"
+          else
+            echo "::error::Notarization failed or was rejected"
+
+            # Fetch detailed log
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "=== Fetching notarization log ==="
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_ID_PASSWORD" \
+                --team-id "$TEAM_ID" \
+                notarization-log.json || true
+
+              if [ -f notarization-log.json ]; then
+                echo "=== Notarization Log ==="
+                cat notarization-log.json
+              fi
+            fi
+            exit 1
+          fi
+
+          # Staple the notarization ticket
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$APP_PATH"
+
+          # Verify Gatekeeper approval
+          echo "=== Gatekeeper assessment ==="
+          spctl --assess --type execute --verbose=4 "$APP_PATH" && \
+            echo "::notice::CatboardFinder.app passed Gatekeeper assessment" || \
+            echo "::warning::CatboardFinder.app failed Gatekeeper assessment"
+
+          # Re-create ZIP with stapled app for distribution
+          rm -f CatboardFinder.zip
+          ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
+
+          echo "FINDER_APP_NOTARIZED=true" >> $GITHUB_ENV
+          echo "::notice::CatboardFinder notarized and stapled successfully"
+
       - name: Package tarball
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -477,6 +638,14 @@ jobs:
         with:
           name: catboard-installer
           path: ${{ env.PKG_NAME }}
+          retention-days: 1
+
+      - name: Upload CatboardFinder app
+        if: runner.os == 'macOS' && env.FINDER_APP_PATH != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: catboard-finder-app
+          path: CatboardFinder.zip
           retention-days: 1
 
       - name: Clean up keychain
