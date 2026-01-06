@@ -340,18 +340,59 @@ jobs:
             exit 0
           fi
 
+          # Verify code signatures before notarization
+          echo "=== Verifying code signatures before notarization ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" || {
+            echo "::error::Code signature verification failed"
+            codesign -dvvv "$APP_PATH"
+            exit 1
+          }
+
+          # Check for hardened runtime
+          echo "=== Checking hardened runtime ==="
+          codesign -d --verbose=4 "$APP_PATH" 2>&1 | grep -i runtime || echo "Warning: runtime flag may not be set"
+
           # Create ZIP for notarization
           echo "Creating ZIP for notarization..."
           ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
 
-          # Submit and wait
+          # Submit and capture output
           echo "Submitting CatboardFinder for notarization..."
-          xcrun notarytool submit CatboardFinder.zip \
+          SUBMIT_OUTPUT=$(xcrun notarytool submit CatboardFinder.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait \
-            --timeout 30m
+            --timeout 30m 2>&1) || true
+
+          echo "$SUBMIT_OUTPUT"
+
+          # Extract submission ID
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+          echo "Submission ID: $SUBMISSION_ID"
+
+          # Check if notarization succeeded
+          if echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
+            echo "::notice::Notarization accepted"
+          else
+            echo "::error::Notarization failed or was rejected"
+
+            # Fetch detailed log
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "=== Fetching notarization log ==="
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_ID_PASSWORD" \
+                --team-id "$TEAM_ID" \
+                notarization-log.json || true
+
+              if [ -f notarization-log.json ]; then
+                echo "=== Notarization Log ==="
+                cat notarization-log.json
+              fi
+            fi
+            exit 1
+          fi
 
           # Staple the notarization ticket
           echo "Stapling notarization ticket..."
