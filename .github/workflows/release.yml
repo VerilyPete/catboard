@@ -465,6 +465,10 @@ jobs:
 
       - name: Create CatboardFinder DMG
         if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
 
@@ -478,7 +482,9 @@ jobs:
 
           # Create a temporary directory for DMG contents
           DMG_DIR=$(mktemp -d)
-          cp -r "$APP_PATH" "$DMG_DIR/"
+
+          # Use ditto to preserve code signatures and extended attributes
+          ditto "$APP_PATH" "$DMG_DIR/CatboardFinder.app"
 
           # Create symlink to Applications
           ln -s /Applications "$DMG_DIR/Applications"
@@ -490,6 +496,21 @@ jobs:
             "$DMG_NAME"
 
           rm -rf "$DMG_DIR"
+
+          # Notarize and staple the DMG itself
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_ID_PASSWORD:-}" ]; then
+            echo "Notarizing DMG..."
+            xcrun notarytool submit "$DMG_NAME" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --wait \
+              --timeout 30m
+
+            echo "Stapling DMG..."
+            xcrun stapler staple "$DMG_NAME"
+          fi
+
           echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
 
       - name: Build macOS installer (.pkg)
