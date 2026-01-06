@@ -104,6 +104,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.verilypete.CatboardCoreTests
         PRODUCT_NAME: CatboardCoreTests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: ""
     dependencies:
       - target: CatboardCore
