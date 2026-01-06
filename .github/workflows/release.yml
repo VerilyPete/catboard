@@ -118,6 +118,15 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Setup Swift signing config
+        if: runner.os == 'macOS'
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd swift/CatboardFinder
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID:-}" > Debug.xcconfig
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID:-}" > Release.xcconfig
+
       - name: Build Swift OCR helper
         if: runner.os == 'macOS'
         run: |
