@@ -1,0 +1,129 @@
+name: CatboardFinder
+options:
+  bundleIdPrefix: com.verilypete
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+targets:
+  # Main container app
+  CatboardFinder:
+    type: application
+    platform: macOS
+    sources:
+      - path: CatboardFinder
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.verilypete.CatboardFinder
+        INFOPLIST_FILE: CatboardFinder/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CatboardFinder/CatboardFinder.entitlements
+        PRODUCT_NAME: CatboardFinder
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - target: CatboardCore
+        embed: true
+      - target: FinderExtension
+        embed: true
+    entitlements:
+      path: CatboardFinder/CatboardFinder.entitlements
+
+  # Finder Sync Extension
+  FinderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinderExtension
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.verilypete.CatboardFinder.FinderExtension
+        INFOPLIST_FILE: FinderExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: FinderExtension/FinderSync.entitlements
+        PRODUCT_NAME: FinderExtension
+        SKIP_INSTALL: YES
+    dependencies:
+      - target: CatboardCore
+        embed: false
+      - framework: FinderSync.framework
+        embed: false
+      - framework: UserNotifications.framework
+        embed: false
+      - framework: Vision.framework
+        embed: false
+      - framework: Quartz.framework
+        embed: false
+    entitlements:
+      path: FinderExtension/FinderSync.entitlements
+
+  # Shared framework
+  CatboardCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: CatboardCore
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.verilypete.CatboardCore
+        INFOPLIST_FILE: CatboardCore/Info.plist
+        PRODUCT_NAME: CatboardCore
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+    dependencies:
+      - framework: Foundation.framework
+        embed: false
+      - framework: AppKit.framework
+        embed: false
+      - framework: Vision.framework
+        embed: false
+      - framework: Quartz.framework
+        embed: false
+      - framework: UniformTypeIdentifiers.framework
+        embed: false
+
+  # Unit tests
+  CatboardCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: CatboardCoreTests
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.verilypete.CatboardCoreTests
+        PRODUCT_NAME: CatboardCoreTests
+        TEST_HOST: ""
+    dependencies:
+      - target: CatboardCore
+
+schemes:
+  CatboardFinder:
+    build:
+      targets:
+        CatboardFinder: all
+        FinderExtension: all
+        CatboardCore: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - CatboardCoreTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
