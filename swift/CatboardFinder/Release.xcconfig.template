@@ -1,0 +1,4 @@
+// Copy this file to Release.xcconfig and add your team ID
+// Release.xcconfig is gitignored and won't be committed
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
