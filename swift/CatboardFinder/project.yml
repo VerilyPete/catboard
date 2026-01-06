@@ -11,6 +11,9 @@ settings:
     SWIFT_VERSION: "5.0"
     ENABLE_HARDENED_RUNTIME: YES
     MACOSX_DEPLOYMENT_TARGET: "15.0"
+    # Consistent code signing across all targets
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
 
 targets:
   # Main container app
