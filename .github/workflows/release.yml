@@ -134,6 +134,60 @@ jobs:
           swift build -c release
           cp .build/release/catboard-ocr ../../target/${{ matrix.target }}/release/
 
+      - name: Install XcodeGen
+        if: runner.os == 'macOS'
+        run: brew install xcodegen
+
+      - name: Build CatboardFinder app
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          cd swift/CatboardFinder
+
+          # Generate Xcode project
+          xcodegen generate
+
+          # Build and archive
+          xcodebuild archive \
+            -project CatboardFinder.xcodeproj \
+            -scheme CatboardFinder \
+            -configuration Release \
+            -archivePath build/CatboardFinder.xcarchive \
+            CODE_SIGN_STYLE=Automatic \
+            | xcpretty || xcodebuild archive \
+              -project CatboardFinder.xcodeproj \
+              -scheme CatboardFinder \
+              -configuration Release \
+              -archivePath build/CatboardFinder.xcarchive \
+              CODE_SIGN_STYLE=Automatic
+
+          # Export the app
+          cat > build/ExportOptions.plist << 'EXPORTOPTS'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+          </dict>
+          </plist>
+          EXPORTOPTS
+
+          # Substitute team ID
+          sed -i '' "s/\${TEAM_ID}/${TEAM_ID}/" build/ExportOptions.plist
+
+          xcodebuild -exportArchive \
+            -archivePath build/CatboardFinder.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/export
+
+          # Copy to release directory
+          cp -r build/export/CatboardFinder.app ../../target/${{ matrix.target }}/release/
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
         env:
@@ -264,6 +318,52 @@ jobs:
           # 4. Gatekeeper will verify the notarization online when users run the binary
           echo "::notice::Notarization complete. Binary will pass Gatekeeper (verified online)."
 
+      - name: Notarize CatboardFinder app
+        if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          # Skip if notarization credentials not configured
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_ID_PASSWORD:-}" ]; then
+            echo "::notice::Notarization skipped - credentials not configured"
+            exit 0
+          fi
+
+          APP_PATH="target/${{ matrix.target }}/release/CatboardFinder.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::warning::CatboardFinder.app not found, skipping notarization"
+            exit 0
+          fi
+
+          # Create ZIP for notarization
+          echo "Creating ZIP for notarization..."
+          ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
+
+          # Submit and wait
+          echo "Submitting CatboardFinder.app for notarization..."
+          xcrun notarytool submit CatboardFinder.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait \
+            --timeout 30m
+
+          # Staple the notarization ticket
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$APP_PATH"
+
+          # Verify with Gatekeeper
+          echo "=== Gatekeeper assessment ==="
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+
+          rm -f CatboardFinder.zip
+          echo "::notice::CatboardFinder.app notarized and stapled successfully"
+
       - name: Package tarball
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -311,6 +411,35 @@ jobs:
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+
+      - name: Create CatboardFinder DMG
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+
+          APP_PATH="target/${{ matrix.target }}/release/CatboardFinder.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::warning::CatboardFinder.app not found, skipping DMG creation"
+            exit 0
+          fi
+
+          DMG_NAME="CatboardFinder-${VERSION}.dmg"
+
+          # Create a temporary directory for DMG contents
+          DMG_DIR=$(mktemp -d)
+          cp -r "$APP_PATH" "$DMG_DIR/"
+
+          # Create symlink to Applications
+          ln -s /Applications "$DMG_DIR/Applications"
+
+          # Create DMG
+          hdiutil create -volname "CatboardFinder" \
+            -srcfolder "$DMG_DIR" \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          rm -rf "$DMG_DIR"
+          echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
 
       - name: Build macOS installer (.pkg)
         if: runner.os == 'macOS'
@@ -486,6 +615,14 @@ jobs:
         with:
           name: catboard-installer
           path: ${{ env.PKG_NAME }}
+          retention-days: 1
+
+      - name: Upload CatboardFinder DMG
+        if: runner.os == 'macOS' && env.DMG_NAME != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: catboard-finder
+          path: ${{ env.DMG_NAME }}
           retention-days: 1
 
       - name: Clean up keychain
