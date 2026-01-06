@@ -140,6 +140,9 @@ jobs:
 
       - name: Build CatboardFinder app
         if: runner.os == 'macOS'
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
         run: |
           set -euo pipefail
           cd swift/CatboardFinder
@@ -147,22 +150,38 @@ jobs:
           # Generate Xcode project
           xcodegen generate
 
-          # Build and archive
+          # Find the Developer ID signing identity
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
+            grep "Developer ID Application" | head -1 | awk -F '"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            exit 1
+          fi
+          echo "Using signing identity: $IDENTITY"
+
+          # Build and archive with Developer ID
           xcodebuild archive \
             -project CatboardFinder.xcodeproj \
             -scheme CatboardFinder \
             -configuration Release \
             -archivePath build/CatboardFinder.xcarchive \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime" \
             | xcpretty || xcodebuild archive \
               -project CatboardFinder.xcodeproj \
               -scheme CatboardFinder \
               -configuration Release \
               -archivePath build/CatboardFinder.xcarchive \
-              CODE_SIGN_STYLE=Automatic
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="$IDENTITY" \
+              DEVELOPMENT_TEAM="$TEAM_ID" \
+              OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
 
           # Export the app
-          cat > build/ExportOptions.plist << 'EXPORTOPTS'
+          cat > build/ExportOptions.plist << EXPORTOPTS
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -171,12 +190,13 @@ jobs:
               <string>developer-id</string>
               <key>teamID</key>
               <string>${TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
           </dict>
           </plist>
           EXPORTOPTS
-
-          # Substitute team ID
-          sed -i '' "s/\${TEAM_ID}/${TEAM_ID}/" build/ExportOptions.plist
 
           xcodebuild -exportArchive \
             -archivePath build/CatboardFinder.xcarchive \
@@ -185,8 +205,6 @@ jobs:
 
           # Copy to release directory
           cp -r build/export/CatboardFinder.app ../../target/${{ matrix.target }}/release/
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
