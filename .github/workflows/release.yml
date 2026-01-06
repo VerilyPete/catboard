@@ -203,6 +203,44 @@ jobs:
             -exportOptionsPlist build/ExportOptions.plist \
             -exportPath build/export
 
+          # Re-sign the app and all nested components to ensure valid signatures
+          # Sign from innermost to outermost: framework -> extension -> app
+          echo "Re-signing app with Developer ID..."
+
+          APP_PATH="build/export/CatboardFinder.app"
+
+          # Sign the framework (no entitlements needed)
+          echo "Signing CatboardCore.framework..."
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" \
+            "$APP_PATH/Contents/Frameworks/CatboardCore.framework/Versions/A"
+
+          # Sign the extension with its entitlements
+          echo "Signing FinderExtension.appex..."
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" \
+            --entitlements "FinderExtension/FinderSync.entitlements" \
+            "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+          # Sign the main app with its entitlements
+          echo "Signing CatboardFinder.app..."
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" \
+            --entitlements "CatboardFinder/CatboardFinder.entitlements" \
+            "$APP_PATH"
+
+          # Verify signatures
+          echo "Verifying signatures..."
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          # Show signature details
+          echo "=== Main app signature ==="
+          codesign -dv --verbose=2 "$APP_PATH"
+          echo "=== Extension signature ==="
+          codesign -dv --verbose=2 "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+          echo "=== Framework signature ==="
+          codesign -dv --verbose=2 "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
+
           # Copy to release directory
           cp -r build/export/CatboardFinder.app ../../target/${{ matrix.target }}/release/
 
