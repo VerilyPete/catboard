@@ -58,6 +58,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: FinderExtension/FinderSync.entitlements
         PRODUCT_NAME: FinderExtension
         SKIP_INSTALL: YES
+        # Explicit signing settings to ensure proper signature
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - target: CatboardCore
         embed: false
@@ -87,6 +91,10 @@ targets:
         PRODUCT_NAME: CatboardCore
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
+        # Explicit signing settings to ensure proper signature
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - framework: Foundation.framework
         embed: false
