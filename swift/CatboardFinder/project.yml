@@ -2,15 +2,15 @@ name: CatboardFinder
 options:
   bundleIdPrefix: com.verilypete
   deploymentTarget:
-    macOS: "13.0"
-  xcodeVersion: "14.0"
+    macOS: "15.0"
+  xcodeVersion: "16.0"
   createIntermediateGroups: true
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
     ENABLE_HARDENED_RUNTIME: YES
-    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
 
 targets:
   # Main container app
