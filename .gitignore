@@ -24,3 +24,7 @@ target
 # Added by cargo
 
 /target
+
+# Swift/Xcode local config (contains DEVELOPMENT_TEAM)
+swift/CatboardFinder/*.xcconfig
+!swift/CatboardFinder/*.xcconfig.template

@@ -18,6 +18,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
 
+configFiles:
+  Debug: Debug.xcconfig
+  Release: Release.xcconfig
+
 targets:
   # Main container app
   CatboardFinder:
