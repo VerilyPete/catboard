@@ -76,6 +76,8 @@ class FinderSync: FIFinderSync {
     // MARK: - Action
 
     @objc func copyToClipboard(_ sender: AnyObject?) {
+        os_log("copyToClipboard action triggered", log: .ui, type: .info)
+
         guard let items = FIFinderSyncController.default().selectedItemURLs(),
               !items.isEmpty else {
             showNotification(
@@ -107,8 +109,19 @@ class FinderSync: FIFinderSync {
 
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
+        // Start accessing security-scoped resource (required for sandboxed extensions)
+        guard url.startAccessingSecurityScopedResource() else {
+            os_log("Failed to access security-scoped resource: %{public}@", log: .ui, type: .error, url.path)
+            showNotification(
+                message: "Cannot access file (sandbox)",
+                success: false
+            )
+            return
+        }
+
         // Process on background thread to avoid blocking Finder
         DispatchQueue.global(qos: .userInitiated).async {
+            defer { url.stopAccessingSecurityScopedResource() }
             self.processFile(url)
         }
     }
