@@ -66,6 +66,7 @@ class FinderSync: FIFinderSync {
             action: #selector(copyToClipboard(_:)),
             keyEquivalent: ""
         )
+        item.target = self
 
         item.image = NSImage(systemSymbolName: "doc.on.clipboard",
                             accessibilityDescription: nil)
