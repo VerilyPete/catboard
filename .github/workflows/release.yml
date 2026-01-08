@@ -148,7 +148,13 @@ jobs:
           cd swift/CatboardFinder
 
           # Generate Xcode project
+          echo "=== Entitlements BEFORE xcodegen ==="
+          cat FinderExtension/FinderSync.entitlements
+
           xcodegen generate
+
+          echo "=== Entitlements AFTER xcodegen ==="
+          cat FinderExtension/FinderSync.entitlements
 
           # Find the Developer ID signing identity
           IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
