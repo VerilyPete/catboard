@@ -110,19 +110,10 @@ class FinderSync: FIFinderSync {
 
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
-        // Start accessing security-scoped resource (required for sandboxed extensions)
-        guard url.startAccessingSecurityScopedResource() else {
-            os_log("Failed to access security-scoped resource: %{public}@", log: .ui, type: .error, url.path)
-            showNotification(
-                message: "Cannot access file (sandbox)",
-                success: false
-            )
-            return
-        }
-
         // Process on background thread to avoid blocking Finder
+        // Note: files.user-selected.read-only entitlement grants implicit access
+        // to files selected in Finder without needing security-scoped resource access
         DispatchQueue.global(qos: .userInitiated).async {
-            defer { url.stopAccessingSecurityScopedResource() }
             self.processFile(url)
         }
     }
