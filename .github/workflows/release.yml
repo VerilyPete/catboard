@@ -211,10 +211,20 @@ jobs:
           ENTITLEMENTS=$(codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex" 2>&1)
           if ! echo "$ENTITLEMENTS" | grep -q "app-sandbox"; then
             echo "Sandbox entitlement missing, re-signing extension..."
+
+            # Debug: verify entitlements file exists and show contents
+            echo "=== Checking entitlements file ==="
+            ls -la FinderExtension/FinderSync.entitlements
+            cat FinderExtension/FinderSync.entitlements
+
             codesign --force --options runtime --timestamp \
               --sign "$IDENTITY" \
               --entitlements "FinderExtension/FinderSync.entitlements" \
               "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+            # Verify entitlements were applied
+            echo "=== Verifying entitlements after re-sign ==="
+            codesign -d --entitlements :- "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
             # Re-sign main app to update seal
             codesign --force --options runtime --timestamp \
