@@ -44,8 +44,6 @@ targets:
         codeSign: true
         copyPhase:
           destination: plugins
-    entitlements:
-      path: CatboardFinder/CatboardFinder.entitlements
 
   # Finder Sync Extension
   FinderExtension:
@@ -77,8 +75,6 @@ targets:
         embed: false
       - framework: Quartz.framework
         embed: false
-    entitlements:
-      path: FinderExtension/FinderSync.entitlements
 
   # Shared framework
   CatboardCore:
