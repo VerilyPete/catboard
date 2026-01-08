@@ -41,7 +41,7 @@ targets:
         codeSign: true
       - target: FinderExtension
         embed: true
-        codeSign: false
+        codeSign: true
         copyPhase:
           destination: plugins
     entitlements:

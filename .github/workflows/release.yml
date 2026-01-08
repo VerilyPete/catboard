@@ -210,13 +210,23 @@ jobs:
           # Re-sign extension with sandbox entitlements if missing
           ENTITLEMENTS=$(codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex" 2>&1)
           if ! echo "$ENTITLEMENTS" | grep -q "app-sandbox"; then
-            echo "Sandbox entitlement missing, re-signing extension..."
+            echo "Sandbox entitlement missing, re-signing all components..."
 
             # Debug: verify entitlements file exists and show contents
             echo "=== Checking entitlements file ==="
             ls -la FinderExtension/FinderSync.entitlements
             cat FinderExtension/FinderSync.entitlements
 
+            # Re-sign from innermost to outermost: framework -> extension -> app
+
+            # 1. Re-sign framework first
+            echo "Re-signing CatboardCore.framework..."
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
+
+            # 2. Re-sign extension with entitlements
+            echo "Re-signing FinderExtension.appex with entitlements..."
             codesign --force --options runtime --timestamp \
               --sign "$IDENTITY" \
               --entitlements "FinderExtension/FinderSync.entitlements" \
@@ -224,9 +234,10 @@ jobs:
 
             # Verify entitlements were applied
             echo "=== Verifying entitlements after re-sign ==="
-            codesign -d --entitlements :- "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+            codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
 
-            # Re-sign main app to update seal
+            # 3. Re-sign main app to update seal
+            echo "Re-signing CatboardFinder.app..."
             codesign --force --options runtime --timestamp \
               --sign "$IDENTITY" \
               --entitlements "CatboardFinder/CatboardFinder.entitlements" \
