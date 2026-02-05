@@ -147,6 +147,10 @@ jobs:
           set -euo pipefail
           cd swift/CatboardFinder
 
+          # Generate xcconfig files with team ID
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID}" > Debug.xcconfig
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID}" > Release.xcconfig
+
           # Generate Xcode project
           echo "=== Entitlements BEFORE xcodegen ==="
           cat FinderExtension/FinderSync.entitlements
