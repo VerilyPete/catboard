@@ -424,6 +424,18 @@ jobs:
             exit 0
           fi
 
+          # Verify code signatures before notarization
+          echo "=== Verifying code signatures before notarization ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" || {
+            echo "::error::Code signature verification failed"
+            codesign -dvvv "$APP_PATH"
+            exit 1
+          }
+
+          # Check for hardened runtime
+          echo "=== Checking hardened runtime ==="
+          codesign -d --verbose=4 "$APP_PATH" 2>&1 | grep -i runtime || echo "Warning: runtime flag may not be set"
+
           # Create ZIP for notarization
           echo "Creating ZIP for notarization..."
           ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
@@ -783,7 +795,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.pkg" \) -exec mv {} release/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.pkg" -o -name "*.dmg" \) -exec mv {} release/ \;
           cd release
           sha256sum * > checksums.txt
           cat checksums.txt
