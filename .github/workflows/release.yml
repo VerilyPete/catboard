@@ -118,12 +118,159 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Setup Swift signing config
+        if: runner.os == 'macOS'
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd swift/CatboardFinder
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID:-}" > Debug.xcconfig
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID:-}" > Release.xcconfig
+
       - name: Build Swift OCR helper
         if: runner.os == 'macOS'
         run: |
           cd swift/catboard-ocr
           swift build -c release
           cp .build/release/catboard-ocr ../../target/${{ matrix.target }}/release/
+
+      - name: Install XcodeGen
+        if: runner.os == 'macOS'
+        run: brew install xcodegen
+
+      - name: Build CatboardFinder app
+        if: runner.os == 'macOS'
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
+        run: |
+          set -euo pipefail
+          cd swift/CatboardFinder
+
+          # Generate xcconfig files with team ID
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID}" > Debug.xcconfig
+          echo "DEVELOPMENT_TEAM = ${TEAM_ID}" > Release.xcconfig
+
+          # Generate Xcode project
+          echo "=== Entitlements BEFORE xcodegen ==="
+          cat FinderExtension/FinderSync.entitlements
+
+          xcodegen generate
+
+          echo "=== Entitlements AFTER xcodegen ==="
+          cat FinderExtension/FinderSync.entitlements
+
+          # Find the Developer ID signing identity
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
+            grep "Developer ID Application" | head -1 | awk -F '"' '{print $2}')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            exit 1
+          fi
+          echo "Using signing identity: $IDENTITY"
+
+          # Archive with full signing using Developer ID
+          xcodebuild archive \
+            -project CatboardFinder.xcodeproj \
+            -scheme CatboardFinder \
+            -configuration Release \
+            -archivePath build/CatboardFinder.xcarchive \
+            ARCHS=arm64 \
+            VALID_ARCHS=arm64 \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+
+          # Export with Developer ID method
+          cat > build/ExportOptions.plist << EXPORTOPTS
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          EXPORTOPTS
+
+          xcodebuild -exportArchive \
+            -archivePath build/CatboardFinder.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/export
+
+          APP_PATH="build/export/CatboardFinder.app"
+
+          # Debug: Check what architectures were built
+          echo "=== Binary architectures ==="
+          file "$APP_PATH/Contents/MacOS/CatboardFinder"
+          lipo -info "$APP_PATH/Contents/MacOS/CatboardFinder" || true
+
+          # Check if entitlements were applied to extension
+          echo "=== Extension entitlements after export ==="
+          codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+          # Re-sign extension with sandbox entitlements if missing
+          ENTITLEMENTS=$(codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex" 2>&1)
+          if ! echo "$ENTITLEMENTS" | grep -q "app-sandbox"; then
+            echo "Sandbox entitlement missing, re-signing all components..."
+
+            # Debug: verify entitlements file exists and show contents
+            echo "=== Checking entitlements file ==="
+            ls -la FinderExtension/FinderSync.entitlements
+            cat FinderExtension/FinderSync.entitlements
+
+            # Re-sign from innermost to outermost: framework -> extension -> app
+
+            # 1. Re-sign framework first
+            echo "Re-signing CatboardCore.framework..."
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
+
+            # 2. Re-sign extension with entitlements
+            echo "Re-signing FinderExtension.appex with entitlements..."
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              --entitlements "FinderExtension/FinderSync.entitlements" \
+              "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+            # Verify entitlements were applied
+            echo "=== Verifying entitlements after re-sign ==="
+            codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+            # 3. Re-sign main app to update seal
+            echo "Re-signing CatboardFinder.app..."
+            codesign --force --options runtime --timestamp \
+              --sign "$IDENTITY" \
+              --entitlements "CatboardFinder/CatboardFinder.entitlements" \
+              "$APP_PATH"
+          fi
+
+          # Verify signatures
+          echo "=== Verifying signatures ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          # Show signature details
+          echo "=== Signature details ==="
+          codesign -dvv "$APP_PATH"
+          codesign -dvv "$APP_PATH/Contents/Frameworks/CatboardCore.framework"
+          codesign -dvv "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+          # Check entitlements
+          echo "=== Extension entitlements (final) ==="
+          codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex"
+
+          # Copy to release directory
+          mkdir -p ../../target/${{ matrix.target }}/release
+          ditto "$APP_PATH" "../../target/${{ matrix.target }}/release/CatboardFinder.app"
 
       - name: Sign macOS binaries
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
@@ -255,75 +402,6 @@ jobs:
           # 4. Gatekeeper will verify the notarization online when users run the binary
           echo "::notice::Notarization complete. Binary will pass Gatekeeper (verified online)."
 
-      - name: Install xcodegen
-        if: runner.os == 'macOS'
-        run: brew install xcodegen
-
-      - name: Build CatboardFinder app
-        if: runner.os == 'macOS'
-        env:
-          SIGNING_ENABLED: ${{ env.SIGNING_ENABLED }}
-          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
-        run: |
-          set -euo pipefail
-          cd swift/CatboardFinder
-
-          # Generate Xcode project
-          xcodegen generate
-
-          # Find signing identity if available
-          if [ "${SIGNING_ENABLED:-false}" = "true" ]; then
-            IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
-              grep "Developer ID Application" | head -1 | awk -F '"' '{print $2}')
-
-            if [ -n "$IDENTITY" ]; then
-              echo "Building with code signing identity: $IDENTITY"
-              xcodebuild build \
-                -scheme CatboardFinder \
-                -configuration Release \
-                -destination 'platform=macOS,arch=arm64' \
-                -derivedDataPath build \
-                ARCHS=arm64 \
-                ONLY_ACTIVE_ARCH=NO \
-                CODE_SIGN_IDENTITY="$IDENTITY" \
-                CODE_SIGN_STYLE=Manual \
-                DEVELOPMENT_TEAM=N9F7839KSX \
-                CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-                OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
-            else
-              echo "::warning::No Developer ID Application certificate found, building unsigned"
-              xcodebuild build \
-                -scheme CatboardFinder \
-                -configuration Release \
-                -destination 'platform=macOS,arch=arm64' \
-                -derivedDataPath build \
-                ARCHS=arm64 \
-                CODE_SIGN_IDENTITY="-" \
-                CODE_SIGNING_REQUIRED=NO
-            fi
-          else
-            echo "Building without code signing..."
-            xcodebuild build \
-              -scheme CatboardFinder \
-              -configuration Release \
-              -destination 'platform=macOS,arch=arm64' \
-              -derivedDataPath build \
-              ARCHS=arm64 \
-              CODE_SIGN_IDENTITY="-" \
-              CODE_SIGNING_REQUIRED=NO
-          fi
-
-          # Find and copy the built app
-          APP_PATH=$(find build -name "CatboardFinder.app" -type d | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::CatboardFinder.app not found in build output"
-            exit 1
-          fi
-
-          echo "Built app at: $APP_PATH"
-          cp -R "$APP_PATH" ../../CatboardFinder.app
-          echo "FINDER_APP_PATH=CatboardFinder.app" >> $GITHUB_ENV
-
       - name: Notarize CatboardFinder app
         if: runner.os == 'macOS' && env.SIGNING_ENABLED == 'true'
         env:
@@ -335,11 +413,12 @@ jobs:
 
           # Skip if notarization credentials not configured
           if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_ID_PASSWORD:-}" ]; then
-            echo "::notice::Notarization skipped - APPLE_ID or APPLE_ID_PASSWORD not configured"
+            echo "::notice::Notarization skipped - credentials not configured"
             exit 0
           fi
 
-          APP_PATH="${FINDER_APP_PATH}"
+          APP_PATH="target/${{ matrix.target }}/release/CatboardFinder.app"
+
           if [ ! -d "$APP_PATH" ]; then
             echo "::warning::CatboardFinder.app not found, skipping notarization"
             exit 0
@@ -361,41 +440,30 @@ jobs:
           echo "Creating ZIP for notarization..."
           ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
 
-          # Submit and capture output
-          echo "Submitting CatboardFinder for notarization..."
-          SUBMIT_OUTPUT=$(xcrun notarytool submit CatboardFinder.zip \
+          # Submit and wait
+          echo "Submitting CatboardFinder.app for notarization..."
+          SUBMISSION_ID=$(xcrun notarytool submit CatboardFinder.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait \
-            --timeout 30m 2>&1) || true
+            --timeout 30m 2>&1 | tee /dev/stderr | grep "id:" | head -1 | awk '{print $2}')
 
-          echo "$SUBMIT_OUTPUT"
+          # Check status and get log if failed
+          STATUS=$(xcrun notarytool info "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$TEAM_ID" 2>&1 | grep "status:" | awk '{print $2}')
 
-          # Extract submission ID
-          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
-          echo "Submission ID: $SUBMISSION_ID"
-
-          # Check if notarization succeeded
-          if echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
-            echo "::notice::Notarization accepted"
-          else
-            echo "::error::Notarization failed or was rejected"
-
-            # Fetch detailed log
-            if [ -n "$SUBMISSION_ID" ]; then
-              echo "=== Fetching notarization log ==="
-              xcrun notarytool log "$SUBMISSION_ID" \
-                --apple-id "$APPLE_ID" \
-                --password "$APPLE_ID_PASSWORD" \
-                --team-id "$TEAM_ID" \
-                notarization-log.json || true
-
-              if [ -f notarization-log.json ]; then
-                echo "=== Notarization Log ==="
-                cat notarization-log.json
-              fi
-            fi
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization failed with status: $STATUS"
+            echo "Fetching notarization log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              notarization-log.json
+            cat notarization-log.json
             exit 1
           fi
 
@@ -403,18 +471,12 @@ jobs:
           echo "Stapling notarization ticket..."
           xcrun stapler staple "$APP_PATH"
 
-          # Verify Gatekeeper approval
+          # Verify with Gatekeeper
           echo "=== Gatekeeper assessment ==="
-          spctl --assess --type execute --verbose=4 "$APP_PATH" && \
-            echo "::notice::CatboardFinder.app passed Gatekeeper assessment" || \
-            echo "::warning::CatboardFinder.app failed Gatekeeper assessment"
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
 
-          # Re-create ZIP with stapled app for distribution
           rm -f CatboardFinder.zip
-          ditto -c -k --keepParent "$APP_PATH" CatboardFinder.zip
-
-          echo "FINDER_APP_NOTARIZED=true" >> $GITHUB_ENV
-          echo "::notice::CatboardFinder notarized and stapled successfully"
+          echo "::notice::CatboardFinder.app notarized and stapled successfully"
 
       - name: Package tarball
         run: |
@@ -463,6 +525,56 @@ jobs:
 
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+
+      - name: Create CatboardFinder DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          APP_PATH="target/${{ matrix.target }}/release/CatboardFinder.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::warning::CatboardFinder.app not found, skipping DMG creation"
+            exit 0
+          fi
+
+          DMG_NAME="CatboardFinder-${VERSION}.dmg"
+
+          # Create a temporary directory for DMG contents
+          DMG_DIR=$(mktemp -d)
+
+          # Use ditto to preserve code signatures and extended attributes
+          ditto "$APP_PATH" "$DMG_DIR/CatboardFinder.app"
+
+          # Create symlink to Applications
+          ln -s /Applications "$DMG_DIR/Applications"
+
+          # Create DMG
+          hdiutil create -volname "CatboardFinder" \
+            -srcfolder "$DMG_DIR" \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          rm -rf "$DMG_DIR"
+
+          # Notarize and staple the DMG itself
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_ID_PASSWORD:-}" ]; then
+            echo "Notarizing DMG..."
+            xcrun notarytool submit "$DMG_NAME" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --wait \
+              --timeout 30m
+
+            echo "Stapling DMG..."
+            xcrun stapler staple "$DMG_NAME"
+          fi
+
+          echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
 
       - name: Build macOS installer (.pkg)
         if: runner.os == 'macOS'
@@ -640,12 +752,12 @@ jobs:
           path: ${{ env.PKG_NAME }}
           retention-days: 1
 
-      - name: Upload CatboardFinder app
-        if: runner.os == 'macOS' && env.FINDER_APP_PATH != ''
+      - name: Upload CatboardFinder DMG
+        if: runner.os == 'macOS' && env.DMG_NAME != ''
         uses: actions/upload-artifact@v6
         with:
-          name: catboard-finder-app
-          path: CatboardFinder.zip
+          name: catboard-finder
+          path: ${{ env.DMG_NAME }}
           retention-days: 1
 
       - name: Clean up keychain
@@ -683,7 +795,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.pkg" \) -exec mv {} release/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.pkg" -o -name "*.dmg" \) -exec mv {} release/ \;
           cd release
           sha256sum * > checksums.txt
           cat checksums.txt

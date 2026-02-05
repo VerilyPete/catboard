@@ -78,7 +78,11 @@ jobs:
 
       - name: Generate Xcode project
         working-directory: swift/CatboardFinder
-        run: xcodegen generate
+        run: |
+          # Create xcconfig files (gitignored but required by xcodegen)
+          echo "// CI build - no team ID needed" > Debug.xcconfig
+          echo "// CI build - no team ID needed" > Release.xcconfig
+          xcodegen generate
 
       - name: Build CatboardFinder (Debug)
         working-directory: swift/CatboardFinder

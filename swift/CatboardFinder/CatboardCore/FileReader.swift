@@ -38,9 +38,10 @@ public struct FileReader {
             }
         }
 
-        guard FileManager.default.isReadableFile(atPath: url.path) else {
-            throw CatboardError.permissionDenied(url)
-        }
+        // Note: We don't use isReadableFile() here because it doesn't account for
+        // sandbox dynamic file access grants. Finder Sync extensions get implicit
+        // access to selected files, but isReadableFile() only checks Unix permissions.
+        // Instead, we let the actual file operations fail with appropriate errors.
 
         // Check file size
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)

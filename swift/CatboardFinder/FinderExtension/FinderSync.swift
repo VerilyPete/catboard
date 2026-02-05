@@ -66,6 +66,7 @@ class FinderSync: FIFinderSync {
             action: #selector(copyToClipboard(_:)),
             keyEquivalent: ""
         )
+        item.target = self
 
         item.image = NSImage(systemSymbolName: "doc.on.clipboard",
                             accessibilityDescription: nil)
@@ -76,6 +77,8 @@ class FinderSync: FIFinderSync {
     // MARK: - Action
 
     @objc func copyToClipboard(_ sender: AnyObject?) {
+        os_log("copyToClipboard action triggered", log: .ui, type: .info)
+
         guard let items = FIFinderSyncController.default().selectedItemURLs(),
               !items.isEmpty else {
             showNotification(
@@ -108,6 +111,8 @@ class FinderSync: FIFinderSync {
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
         // Process on background thread to avoid blocking Finder
+        // Note: files.user-selected.read-only entitlement grants implicit access
+        // to files selected in Finder without needing security-scoped resource access
         DispatchQueue.global(qos: .userInitiated).async {
             self.processFile(url)
         }
