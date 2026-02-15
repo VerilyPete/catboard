@@ -141,19 +141,21 @@ class FinderSync: FIFinderSync {
                 return
             }
 
-            // Copy asynchronously and show notification on completion
-            Clipboard.copy(text) { [weak self] success in
-                if success {
-                    self?.showNotification(
-                        message: "Copied contents to clipboard",
-                        success: true
-                    )
-                } else {
-                    self?.showNotification(
-                        message: "Failed to copy to clipboard",
-                        success: false
-                    )
-                }
+            // Copy synchronously so clipboard is updated before we return
+            let success = DispatchQueue.main.sync {
+                Clipboard.copySync(text)
+            }
+
+            if success {
+                showNotification(
+                    message: "Copied contents to clipboard",
+                    success: true
+                )
+            } else {
+                showNotification(
+                    message: "Failed to copy to clipboard",
+                    success: false
+                )
             }
         } catch {
             os_log("Error processing file: %{public}@", log: .ui, type: .error, error.localizedDescription)
