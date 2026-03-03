@@ -738,7 +738,7 @@ jobs:
           echo "::notice::Installer notarized and stapled successfully"
 
       - name: Upload tarball artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: catboard-${{ matrix.target }}
           path: ${{ env.ARCHIVE_NAME }}
@@ -746,7 +746,7 @@ jobs:
 
       - name: Upload pkg artifact
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: catboard-installer
           path: ${{ env.PKG_NAME }}
@@ -754,7 +754,7 @@ jobs:
 
       - name: Upload CatboardFinder DMG
         if: runner.os == 'macOS' && env.DMG_NAME != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: catboard-finder
           path: ${{ env.DMG_NAME }}
