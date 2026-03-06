@@ -54,19 +54,34 @@ final class CatboardCoreTests: XCTestCase {
 
     // MARK: - Clipboard Tests
 
-    func testClipboardCopyAndRetrieve() {
-        let testString = "Test clipboard content \(UUID().uuidString)"
-        let expectation = self.expectation(description: "Copy completion")
+    func testCopyFromBackgroundThreadWritesImmediately() {
+        let testString = "Background thread test \(UUID().uuidString)"
+        let expectation = self.expectation(description: "Background copy")
+        var copyResult = false
+        var clipboardContent: String?
 
-        Clipboard.copy(testString) { success in
-            XCTAssertTrue(success)
+        DispatchQueue.global(qos: .userInitiated).async {
+            copyResult = Clipboard.copy(testString)
+            // Read clipboard immediately after copy returns — on the same background thread.
+            // If copy() were async, this would read stale content.
+            clipboardContent = Clipboard.getText()
             expectation.fulfill()
         }
 
         wait(for: [expectation], timeout: 5.0)
 
-        // Verify content was copied
-        let retrieved = Clipboard.getText()
-        XCTAssertEqual(retrieved, testString)
+        XCTAssertTrue(copyResult)
+        XCTAssertEqual(clipboardContent, testString)
+    }
+
+    func testCopyReturnsTrue() {
+        let result = Clipboard.copy("Hello, clipboard")
+        XCTAssertTrue(result)
+    }
+
+    func testCopyRejectsOversizedText() {
+        let oversized = String(repeating: "X", count: FileReader.maxOutputSize + 1)
+        let result = Clipboard.copy(oversized)
+        XCTAssertFalse(result)
     }
 }
