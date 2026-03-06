@@ -56,8 +56,8 @@ class FinderSync: FIFinderSync {
     override func menu(for menuKind: FIMenuKind) -> NSMenu {
         let menu = NSMenu(title: "")
 
-        // Only add menu item for contextual menus on items, not toolbar or other contexts
-        guard menuKind == .contextualMenuForItems else {
+        // Add menu item for contextual menus on items and toolbar button
+        guard menuKind == .contextualMenuForItems || menuKind == .toolbarItemMenu else {
             return menu
         }
 
@@ -111,8 +111,6 @@ class FinderSync: FIFinderSync {
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
         // Process on background thread to avoid blocking Finder
-        // Note: files.user-selected.read-only entitlement grants implicit access
-        // to files selected in Finder without needing security-scoped resource access
         DispatchQueue.global(qos: .userInitiated).async {
             self.processFile(url)
         }
@@ -164,24 +162,30 @@ class FinderSync: FIFinderSync {
 
     // MARK: - Notifications (using modern UserNotifications framework)
 
+    private func playSoundFeedback(success: Bool) {
+        DispatchQueue.main.async {
+            let soundName = success ? "Glass" : "Basso"
+            NSSound(named: NSSound.Name(soundName))?.play()
+        }
+    }
+
     private func showNotification(message: String, success: Bool) {
-        // Check if we have permission (cached from init)
+        playSoundFeedback(success: success)
+
         guard notificationPermissionGranted else {
-            os_log("Cannot show notification: permission not granted", log: .ui, type: .info)
+            os_log("Notification not shown (permission denied): %{public}@", log: .ui, type: .info, message)
             return
         }
 
         let content = UNMutableNotificationContent()
         content.title = "Catboard"
         content.body = message
-
-        // macOS 13+ supports defaultCritical
-        content.sound = success ? .default : .defaultCritical
+        content.sound = nil  // Sound already played via NSSound
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
-            trigger: nil  // Deliver immediately
+            trigger: nil
         )
 
         UNUserNotificationCenter.current().add(request) { error in
