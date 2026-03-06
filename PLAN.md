@@ -1,5 +1,12 @@
 # Multi-Page PDF OCR Implementation Plan
 
+**Status:** Completed. Implemented in commit `d575789` (feat: add multi-page PDF OCR support).
+
+The Swift `CatboardCore` framework (`swift/CatboardFinder/CatboardCore/`) now includes
+native OCR and PDF extraction (see `OCREngine.swift` and `PDFExtractor.swift`), superseding
+the need for the Rust CLI to shell out to `catboard-ocr` for Finder extension use cases.
+The Rust CLI + `catboard-ocr` pipeline still works independently for command-line usage.
+
 ## Overview
 
 Currently, catboard's OCR helper (`catboard-ocr`) uses `NSImage` to load files for OCR processing. While this works well for images and single-page PDFs, `NSImage` only renders the first page of multi-page PDFs. This limitation means that scanned multi-page documents only have their first page extracted.

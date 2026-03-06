@@ -11,7 +11,7 @@ Like `cat` but for your clipboard - hence **catboard**.
 - OCR images (PNG, JPG, TIFF, etc.) using macOS Vision framework
 - OCR scanned PDFs automatically when no embedded text is found
 - Multi-page PDF OCR with page separators
-- macOS Finder right-click integration via Quick Action
+- macOS Finder right-click integration via Finder Sync Extension or Quick Action
 - Binary file detection to prevent clipboard corruption
 - Support for stdin input
 - Multiple file concatenation
@@ -74,7 +74,11 @@ cp -r "macos/Copy to Clipboard.workflow" ~/Library/Services/
 
 ### Finder Integration
 
-After installation, right-click any file in Finder and look for "Copy to Clipboard" under Quick Actions or Services.
+There are two options for Finder integration:
+
+**Finder Sync Extension (recommended):** Install the CatboardFinder app, then enable the extension in System Settings → Privacy & Security → Extensions → Finder. Right-click any file to see "Copy to Clipboard" in the context menu. This option uses native Swift with built-in OCR and PDF extraction — no separate CLI tools needed.
+
+**Quick Action (legacy):** After installing the Rust CLI, right-click any file in Finder and look for "Copy to Clipboard" under Quick Actions or Services. This shells out to the `catboard` CLI.
 
 ## Usage
 
@@ -141,9 +145,10 @@ catboard ~/Desktop/Screenshot.png
 
 ## Components
 
-- **catboard** - Main CLI tool for copying file contents to clipboard
-- **catboard-ocr** - OCR helper using macOS Vision framework (required for image and scanned PDF support)
-- **Copy to Clipboard.workflow** - Finder Quick Action for right-click integration
+- **catboard** - Rust CLI tool for copying file contents to clipboard
+- **catboard-ocr** - Swift OCR helper using macOS Vision framework (required by the CLI for image and scanned PDF support)
+- **CatboardFinder** - Native Swift Finder Sync Extension with built-in file reading, PDF extraction, and OCR. Includes container app, extension, and shared CatboardCore framework
+- **Copy to Clipboard.workflow** - Legacy Finder Quick Action (shells out to the `catboard` CLI)
 
 ## Error Handling
 
@@ -182,19 +187,25 @@ cargo test -- --ignored
 
 ```
 catboard/
-├── src/
-│   ├── main.rs       # CLI entry point
-│   ├── lib.rs        # Library exports
-│   ├── clipboard.rs  # Clipboard operations
-│   ├── file.rs       # File reading and PDF extraction
-│   ├── ocr.rs        # OCR integration
-│   └── error.rs      # Error types
+├── src/                          # Rust CLI
+│   ├── main.rs                   # CLI entry point (clap)
+│   ├── lib.rs                    # Library exports
+│   ├── clipboard.rs              # Clipboard operations (arboard)
+│   ├── file.rs                   # File reading and PDF extraction
+│   ├── ocr.rs                    # OCR integration (shells out to catboard-ocr)
+│   └── error.rs                  # Error types (thiserror)
 ├── swift/
-│   └── catboard-ocr/ # macOS Vision OCR helper
+│   ├── catboard-ocr/             # Standalone OCR CLI (Vision framework)
+│   └── CatboardFinder/           # Finder Sync Extension
+│       ├── CatboardCore/         # Shared framework (FileReader, Clipboard, OCR, PDF)
+│       ├── CatboardFinder/       # Container app (AppDelegate, icon assets)
+│       ├── FinderExtension/      # Finder Sync Extension (context menu, clipboard)
+│       ├── CatboardCoreTests/    # Unit tests
+│       └── project.yml           # XcodeGen project definition
 ├── tests/
-│   └── integration.rs
+│   └── integration.rs            # Rust integration tests
 └── macos/
-    └── Copy to Clipboard.workflow/
+    └── Copy to Clipboard.workflow/  # Legacy Finder Quick Action
 ```
 
 ## Requirements

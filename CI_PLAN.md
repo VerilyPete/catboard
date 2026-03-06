@@ -58,8 +58,24 @@ Set up GitHub Actions for continuous integration and automated builds across sup
 
 ---
 
+## Current State (March 2026)
+
+CI is operational at `.github/workflows/ci.yml`. The pipeline covers both codebases:
+
+**Rust (original CLI):**
+- `fmt` — formatting check (ubuntu-latest)
+- `clippy` — lint with warnings-as-errors (macos-latest)
+- `test` — unit + integration tests (macos-latest)
+- `security-audit` — dependency vulnerability scan (ubuntu-latest)
+
+**Swift (Finder Sync Extension):**
+- `swift-finder` — xcodegen → xcodebuild build + test (macos-latest)
+
+Release pipeline (`.github/workflows/release.yml`) builds and publishes on version tags.
+
 ## Notes
 
-- Clipboard tests (`#[ignore]`) require a display and cannot run in CI
+- Clipboard tests (`#[ignore]` in Rust) require a display and cannot run in CI
 - musl builds may need testing for arboard compatibility
 - macOS releases include the Finder Quick Action workflow
+- The Swift Finder Extension build uses `CODE_SIGN_IDENTITY="-"` in CI (ad-hoc signing)
