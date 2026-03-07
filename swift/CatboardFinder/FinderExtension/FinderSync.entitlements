@@ -8,5 +8,9 @@
     <true/>
     <key>com.apple.security.files.home-directory.read-only</key>
     <true/>
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+    <array>
+        <string>/</string>
+    </array>
 </dict>
 </plist>
