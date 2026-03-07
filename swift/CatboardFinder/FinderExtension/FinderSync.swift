@@ -162,10 +162,17 @@ class FinderSync: FIFinderSync {
 
     // MARK: - Notifications (using modern UserNotifications framework)
 
+    private static let successSound = NSSound(named: NSSound.Name("Glass"))
+    private static let failureSound = NSSound(named: NSSound.Name("Basso"))
+
     private func playSoundFeedback(success: Bool) {
         DispatchQueue.main.async {
-            let soundName = success ? "Glass" : "Basso"
-            NSSound(named: NSSound.Name(soundName))?.play()
+            let sound = success ? Self.successSound : Self.failureSound
+            guard let sound = sound else {
+                os_log("Feedback sound not found", log: .ui, type: .error)
+                return
+            }
+            sound.play()
         }
     }
 
