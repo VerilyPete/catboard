@@ -219,8 +219,8 @@ jobs:
 
           # Re-sign extension with sandbox entitlements if missing
           ENTITLEMENTS=$(codesign -d --entitlements - "$APP_PATH/Contents/PlugIns/FinderExtension.appex" 2>&1)
-          if ! echo "$ENTITLEMENTS" | grep -q "app-sandbox"; then
-            echo "Sandbox entitlement missing, re-signing all components..."
+          if ! echo "$ENTITLEMENTS" | grep -q "temporary-exception"; then
+            echo "Temporary-exception entitlement missing, re-signing all components..."
 
             # Debug: verify entitlements file exists and show contents
             echo "=== Checking entitlements file ==="
