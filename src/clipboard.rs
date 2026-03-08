@@ -39,6 +39,8 @@ pub fn copy_to_clipboard(text: &str) -> Result<()> {
     clipboard.set_text(text)
 }
 
+/// Tests verify the `Clipboard` trait contract via the mock implementation.
+/// The same contract is implemented by `SystemClipboard` for production use.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_set_and_get() {
+    fn test_clipboard_trait_set_and_get() {
         let mut clipboard = MockClipboard::new();
 
         clipboard.set_text("Hello, clipboard!").unwrap();
@@ -98,14 +100,14 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_empty() {
+    fn test_clipboard_trait_initial_state() {
         let mut clipboard = MockClipboard::new();
         let result = clipboard.get_text().unwrap();
         assert_eq!(result, "");
     }
 
     #[test]
-    fn test_mock_clipboard_unicode() {
+    fn test_clipboard_trait_unicode() {
         let mut clipboard = MockClipboard::new();
         let unicode_text = "\u{1F600} Emoji and \u{4E2D}\u{6587}!";
 
@@ -116,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_multiline() {
+    fn test_clipboard_trait_multiline() {
         let mut clipboard = MockClipboard::new();
         let multiline = "Line 1\nLine 2\nLine 3";
 
@@ -127,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_failure() {
+    fn test_clipboard_trait_propagates_errors() {
         let mut clipboard = MockClipboard::with_failure();
 
         let result = clipboard.set_text("test");
@@ -138,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_overwrite() {
+    fn test_clipboard_trait_overwrites_previous() {
         let mut clipboard = MockClipboard::new();
 
         clipboard.set_text("First").unwrap();
@@ -149,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_clipboard_large_content() {
+    fn test_clipboard_trait_handles_large_content() {
         let mut clipboard = MockClipboard::new();
         let large_text = "X".repeat(100_000);
 

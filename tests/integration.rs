@@ -135,6 +135,38 @@ fn test_stdin_dash_argument() {
     assert!(!stderr.contains("error: unexpected argument"));
 }
 
+#[test]
+#[ignore = "Requires clipboard access"]
+fn test_multiple_files_copies_content() {
+    let dir = TempDir::new().unwrap();
+    let file1 = dir.path().join("file1.txt");
+    let file2 = dir.path().join("file2.txt");
+
+    let mut f1 = File::create(&file1).unwrap();
+    f1.write_all(b"content 1").unwrap();
+
+    let mut f2 = File::create(&file2).unwrap();
+    f2.write_all(b"content 2").unwrap();
+
+    catboard_cmd()
+        .arg(&file1)
+        .arg(&file2)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("files to clipboard"));
+}
+
+#[test]
+#[ignore = "Requires clipboard access"]
+fn test_stdin_copies_content() {
+    catboard_cmd()
+        .arg("-")
+        .write_stdin("hello from stdin")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("from stdin to clipboard"));
+}
+
 // These tests require clipboard access and may be skipped in CI
 #[test]
 #[ignore = "Requires clipboard access"]

@@ -372,26 +372,4 @@ mod tests {
             err_msg
         );
     }
-
-    // Integration test - only runs on macOS with helper installed
-    #[test]
-    #[ignore = "Requires catboard-ocr helper installed on macOS"]
-    fn test_real_ocr_with_helper() {
-        // This test requires:
-        // 1. Running on macOS
-        // 2. catboard-ocr helper compiled and in PATH or next to test binary
-
-        let dir = TempDir::new().unwrap();
-        let _image_path = dir.path().join("test.png");
-
-        // Would need a real image with text here
-        // For now, this is a placeholder for manual testing
-
-        if is_ocr_available() {
-            // If we had a real test image, we'd test it here
-            println!("OCR helper is available");
-        } else {
-            println!("OCR helper not found, skipping");
-        }
-    }
 }
