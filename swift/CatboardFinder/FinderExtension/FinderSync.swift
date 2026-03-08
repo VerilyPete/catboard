@@ -91,7 +91,7 @@ class FinderSync: FIFinderSync {
         // Handle multiple selection
         if items.count > 1 {
             showNotification(
-                message: "Please select only one file",
+                message: "Please select only one item",
                 success: false
             )
             return
@@ -110,9 +110,36 @@ class FinderSync: FIFinderSync {
 
         os_log("User selected: %{public}@", log: .ui, type: .info, url.path)
 
+        // Check if selected item is a directory
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+
         // Process on background thread to avoid blocking Finder
         DispatchQueue.global(qos: .userInitiated).async {
-            self.processFile(url)
+            if isDirectory.boolValue {
+                self.processDirectory(url)
+            } else {
+                self.processFile(url)
+            }
+        }
+    }
+
+    private func processDirectory(_ url: URL) {
+        do {
+            let result = try TreeGenerator.generate(directories: [url])
+            if result.output.isEmpty {
+                showNotification(message: "Directory is empty", success: false)
+                return
+            }
+            let success = Clipboard.copy(result.output)
+            var message = "Copied \(result.filesIncluded) files to clipboard"
+            if result.truncated { message += " (truncated)" }
+            showNotification(message: message, success: success)
+        } catch {
+            os_log("Error processing directory: %{public}@", log: .ui, type: .error, error.localizedDescription)
+            var message = error.localizedDescription
+            if message.count > 100 { message = String(message.prefix(97)) + "..." }
+            showNotification(message: message, success: false)
         }
     }
 

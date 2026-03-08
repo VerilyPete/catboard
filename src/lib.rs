@@ -24,6 +24,7 @@ pub mod clipboard;
 pub mod error;
 pub mod file;
 pub mod ocr;
+pub mod tree;
 
 pub use clipboard::{copy_to_clipboard, Clipboard, SystemClipboard};
 pub use error::{CatboardError, Result};

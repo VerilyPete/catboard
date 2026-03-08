@@ -118,6 +118,29 @@ cat README.md | catboard -
 -V, --version    Print version
 ```
 
+### Directory Contents for LLM Context
+
+```bash
+# Output directory contents as markdown to stdout
+catboard tree src/
+
+# Copy to clipboard (for pasting into ChatGPT, Claude, etc.)
+catboard tree --copy src/
+
+# Multiple directories
+catboard tree --copy src/ lib/ tests/
+
+# Include hidden files, larger size limit
+catboard tree --hidden --max-total-size 5MB .
+
+# Ignore .gitignore rules
+catboard tree --no-gitignore src/
+```
+
+The output includes a directory tree, file contents with syntax highlighting, and skip notes for binary/large files. Respects `.gitignore` by default.
+
+The `--copy` flag is CLI-only. The Finder extension copies to clipboard automatically when you right-click a directory.
+
 ### Examples
 
 ```bash
@@ -150,9 +173,9 @@ catboard ~/Desktop/Screenshot.png
 
 ## Components
 
-- **catboard** - Rust CLI tool for copying file contents to clipboard
+- **catboard** - Rust CLI tool for copying file contents to clipboard, with `catboard tree` for directory-to-markdown output
 - **catboard-ocr** - Swift OCR helper using macOS Vision framework (required by the CLI for image and scanned PDF support)
-- **CatboardFinder** - Native Swift Finder Sync Extension with built-in file reading, PDF extraction, and OCR. Includes container app, extension, and shared CatboardCore framework
+- **CatboardFinder** - Native Swift Finder Sync Extension with built-in file reading, PDF extraction, OCR, and directory tree generation. Right-click any file or directory. Includes container app, extension, and shared CatboardCore framework
 - **Copy to Clipboard.workflow** - Legacy Finder Quick Action (shells out to the `catboard` CLI)
 
 ## Error Handling
@@ -193,16 +216,17 @@ cargo test -- --ignored
 ```
 catboard/
 ├── src/                          # Rust CLI
-│   ├── main.rs                   # CLI entry point (clap)
+│   ├── main.rs                   # CLI entry point (clap subcommands)
 │   ├── lib.rs                    # Library exports
 │   ├── clipboard.rs              # Clipboard operations (arboard)
 │   ├── file.rs                   # File reading and PDF extraction
+│   ├── tree.rs                   # Directory tree generation for LLM context
 │   ├── ocr.rs                    # OCR integration (shells out to catboard-ocr)
 │   └── error.rs                  # Error types (thiserror)
 ├── swift/
 │   ├── catboard-ocr/             # Standalone OCR CLI (Vision framework)
 │   └── CatboardFinder/           # Finder Sync Extension
-│       ├── CatboardCore/         # Shared framework (FileReader, Clipboard, OCR, PDF)
+│       ├── CatboardCore/         # Shared framework (FileReader, Clipboard, OCR, PDF, TreeGenerator)
 │       ├── CatboardFinder/       # Container app (AppDelegate, icon assets)
 │       ├── FinderExtension/      # Finder Sync Extension (context menu, clipboard)
 │       ├── CatboardCoreTests/    # Unit tests

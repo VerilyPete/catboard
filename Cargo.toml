@@ -12,10 +12,11 @@ categories = ["command-line-utilities"]
 [dependencies]
 arboard = "3"
 clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
 pdf_oxide = "0.3"
-tempfile = "3"
 thiserror = "2"
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
+tempfile = "3"

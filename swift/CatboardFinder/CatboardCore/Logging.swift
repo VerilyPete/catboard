@@ -7,5 +7,6 @@ public extension OSLog {
     static let pdf = OSLog(subsystem: subsystem, category: "PDF")
     static let ocr = OSLog(subsystem: subsystem, category: "OCR")
     static let clipboard = OSLog(subsystem: subsystem, category: "Clipboard")
+    static let tree = OSLog(subsystem: subsystem, category: "Tree")
     static let ui = OSLog(subsystem: subsystem, category: "UI")
 }

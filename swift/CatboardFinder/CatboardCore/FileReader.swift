@@ -4,7 +4,7 @@ import os.log
 
 public struct FileReader {
     /// Maximum bytes to check for binary content (null bytes)
-    private static let binaryCheckSize = 8192
+    static let binaryCheckSize = 8192
 
     /// Maximum input file size (50MB)
     private static let maxFileSize: Int64 = 50 * 1024 * 1024
@@ -74,6 +74,19 @@ public struct FileReader {
         return try readTextFile(url)
     }
 
+    /// Check if data appears to be binary (contains null bytes in the first binaryCheckSize bytes)
+    public static func isBinary(data: Data) -> Bool {
+        let checkRange = 0..<min(binaryCheckSize, data.count)
+        return data[checkRange].contains(0)
+    }
+
+    private static func stripBOM(_ text: String) -> String {
+        if text.hasPrefix("\u{FEFF}") {
+            return String(text.dropFirst())
+        }
+        return text
+    }
+
     /// Read plain text file with binary detection and encoding detection
     private static func readTextFile(_ url: URL) throws -> String {
         let data = try Data(contentsOf: url)
@@ -90,32 +103,31 @@ public struct FileReader {
             // UTF-32 LE BOM: FF FE 00 00 (check before UTF-16 LE since it starts the same)
             if data.count >= 4 && bom[0] == 0xFF && bom[1] == 0xFE && bom[2] == 0x00 && bom[3] == 0x00 {
                 if let text = String(data: data, encoding: .utf32LittleEndian) {
-                    return text
+                    return stripBOM(text)
                 }
             }
             // UTF-32 BE BOM: 00 00 FE FF
             if data.count >= 4 && bom[0] == 0x00 && bom[1] == 0x00 && bom[2] == 0xFE && bom[3] == 0xFF {
                 if let text = String(data: data, encoding: .utf32BigEndian) {
-                    return text
+                    return stripBOM(text)
                 }
             }
             // UTF-16 LE BOM: FF FE
             if bom[0] == 0xFF && bom[1] == 0xFE {
                 if let text = String(data: data, encoding: .utf16LittleEndian) {
-                    return text
+                    return stripBOM(text)
                 }
             }
             // UTF-16 BE BOM: FE FF
             if bom[0] == 0xFE && bom[1] == 0xFF {
                 if let text = String(data: data, encoding: .utf16BigEndian) {
-                    return text
+                    return stripBOM(text)
                 }
             }
         }
 
         // Check first 8KB for null bytes (indicates binary file)
-        let checkRange = 0..<min(binaryCheckSize, data.count)
-        if data[checkRange].contains(0) {
+        if isBinary(data: data) {
             // Try UTF-16 without BOM (try both byte orders)
             if let text = String(data: data, encoding: .utf16LittleEndian) {
                 return text

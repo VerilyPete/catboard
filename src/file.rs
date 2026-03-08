@@ -129,9 +129,8 @@ fn extract_pdf_with_ocr(_doc: &mut PdfDocument, path: &Path, _page_count: usize)
     })
 }
 
-/// Read a plain text file with binary detection
-fn read_text_file(path: &Path) -> Result<String> {
-    // Try to open the file
+/// Check if a file appears to be binary by scanning for null bytes.
+pub(crate) fn is_binary_file(path: &Path) -> Result<bool> {
     let mut file = fs::File::open(path).map_err(|e| match e.kind() {
         io::ErrorKind::PermissionDenied => CatboardError::PermissionDenied(path.to_path_buf()),
         io::ErrorKind::NotFound => CatboardError::FileNotFound(path.to_path_buf()),
@@ -140,20 +139,21 @@ fn read_text_file(path: &Path) -> Result<String> {
             source: e,
         },
     })?;
-
-    // Check for binary content by reading first chunk
     let mut buffer = vec![0u8; BINARY_CHECK_SIZE];
     let bytes_read = file.read(&mut buffer).map_err(|e| CatboardError::IoError {
         path: path.to_path_buf(),
         source: e,
     })?;
+    Ok(buffer[..bytes_read].contains(&0))
+}
 
-    // Check for null bytes which indicate binary content
-    if buffer[..bytes_read].contains(&0) {
+/// Read a plain text file with binary detection
+fn read_text_file(path: &Path) -> Result<String> {
+    if is_binary_file(path)? {
         return Err(CatboardError::BinaryFile(path.to_path_buf()));
     }
 
-    // Re-read the entire file as a string
+    // Read the entire file as a string
     fs::read_to_string(path).map_err(|e| CatboardError::IoError {
         path: path.to_path_buf(),
         source: e,
@@ -288,22 +288,20 @@ mod tests {
         // Test that a rotated PDF is properly recognized as a PDF
         // (not rejected as binary)
         let pdf_path = std::path::Path::new("tests/2025-12-12_12-11-14.pdf");
-        if pdf_path.exists() {
-            let result = read_file_contents(pdf_path);
-            // Should fail with ExtractionError (no text or no OCR), not BinaryFile
-            match result {
-                Err(CatboardError::BinaryFile(_)) => {
-                    panic!("Rotated PDF should not be rejected as binary file");
-                }
-                Err(CatboardError::ExtractionError { .. }) => {
-                    // Expected - PDF has no text and OCR may not be available
-                }
-                Ok(_) => {
-                    // Also acceptable if OCR is available and works
-                }
-                Err(e) => {
-                    panic!("Unexpected error type: {:?}", e);
-                }
+        let result = read_file_contents(pdf_path);
+        // Should fail with ExtractionError (no text or no OCR), not BinaryFile
+        match result {
+            Err(CatboardError::BinaryFile(_)) => {
+                panic!("Rotated PDF should not be rejected as binary file");
+            }
+            Err(CatboardError::ExtractionError { .. }) => {
+                // Expected - PDF has no text and OCR may not be available
+            }
+            Ok(_) => {
+                // Also acceptable if OCR is available and works
+            }
+            Err(e) => {
+                panic!("Unexpected error type: {:?}", e);
             }
         }
     }

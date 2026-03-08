@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Catboard is a macOS CLI utility that copies file contents to the system clipboard. It supports text files, PDF text extraction, and OCR for images/scanned PDFs via a Swift helper. It includes Finder integration through both a Quick Action workflow and a Finder Sync Extension.
+Catboard is a macOS CLI utility that copies file contents to the system clipboard. It supports text files, PDF text extraction, OCR for images/scanned PDFs via a Swift helper, and directory tree generation for LLM context (`catboard tree`). It includes Finder integration through both a Quick Action workflow and a Finder Sync Extension (which supports right-clicking both files and directories).
 
 ## Architecture
 
 Two codebases work together:
 
-- **Rust CLI (`src/`)** — Main `catboard` binary. Modules: `main.rs` (CLI via clap), `lib.rs` (public API), `file.rs` (file reading + PDF extraction), `clipboard.rs` (clipboard ops via arboard), `ocr.rs` (OCR integration by shelling out to `catboard-ocr`), `error.rs` (error types via thiserror).
+- **Rust CLI (`src/`)** — Main `catboard` binary. Modules: `main.rs` (CLI via clap subcommands), `lib.rs` (public API), `file.rs` (file reading + PDF extraction), `tree.rs` (directory tree generation using `ignore` crate), `clipboard.rs` (clipboard ops via arboard), `ocr.rs` (OCR integration by shelling out to `catboard-ocr`), `error.rs` (error types via thiserror).
 - **Swift (`swift/`)** — Two sub-projects:
   - `catboard-ocr/` — Standalone CLI using macOS Vision framework for OCR. Built with Swift Package Manager.
   - `CatboardFinder/` — Finder Sync Extension app with three targets: `CatboardFinder` (container app), `FinderExtension` (Finder Sync Extension), `CatboardCore` (shared framework). Uses XcodeGen (`project.yml`) to generate the Xcode project.
@@ -71,7 +71,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
 ## Key Dependencies
 
 - **arboard** — Cross-platform clipboard access
-- **clap** (derive) — CLI argument parsing
+- **clap** (derive) — CLI argument parsing with subcommands
+- **ignore** — `.gitignore`-aware directory walking (from the ripgrep project)
 - **pdf_oxide** — PDF text extraction
 - **thiserror** — Error type derivation
 - **assert_cmd + predicates** — Integration test helpers
@@ -82,4 +83,3 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on push to main and PRs:
 - `deny.toml` configures `cargo-deny` for license and security auditing
 - The Finder Extension uses `codeSign: false` in `project.yml` to preserve entitlements during embedding
 - Integration tests live in `tests/integration.rs`
-- `PLAN.md` contains the multi-page PDF OCR implementation plan

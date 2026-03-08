@@ -28,6 +28,12 @@ pub enum CatboardError {
 
     #[error("No files specified")]
     NoFilesSpecified,
+
+    #[error("Directory not found: {0}")]
+    DirectoryNotFound(PathBuf),
+
+    #[error("Not a directory: {0}")]
+    NotADirectory(PathBuf),
 }
 
 pub type Result<T> = std::result::Result<T, CatboardError>;
@@ -74,6 +80,18 @@ mod tests {
             source: io_err,
         };
         assert_eq!(err.to_string(), "Failed to read file 'data.txt': disk full");
+    }
+
+    #[test]
+    fn test_directory_not_found_error_display() {
+        let err = CatboardError::DirectoryNotFound(PathBuf::from("/missing/dir"));
+        assert_eq!(err.to_string(), "Directory not found: /missing/dir");
+    }
+
+    #[test]
+    fn test_not_a_directory_error_display() {
+        let err = CatboardError::NotADirectory(PathBuf::from("/some/file.txt"));
+        assert_eq!(err.to_string(), "Not a directory: /some/file.txt");
     }
 
     #[test]
