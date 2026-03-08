@@ -21,10 +21,14 @@ Like `cat` but for your clipboard - hence **catboard**.
 ### Homebrew (recommended)
 
 ```bash
+# CLI tools
 brew install VerilyPete/tap/catboard
+
+# Finder extension (toolbar button + right-click menu)
+brew install --cask VerilyPete/tap/catboard-finder
 ```
 
-After installation, enable Finder integration:
+After installing the CLI, enable the Quick Action:
 
 ```bash
 cp -r "$(brew --prefix)/share/catboard/Copy to Clipboard.workflow" ~/Library/Services/
@@ -34,6 +38,7 @@ cp -r "$(brew --prefix)/share/catboard/Copy to Clipboard.workflow" ~/Library/Ser
 
 Download `catboard-*-installer.pkg` from the [releases page](https://github.com/VerilyPete/catboard/releases) and double-click to install. The installer automatically sets up:
 - CLI tools in `/usr/local/bin`
+- CatboardFinder app in `/Applications` (Finder extension)
 - Finder Quick Action for right-click integration
 
 ### Manual Installation
@@ -76,7 +81,7 @@ cp -r "macos/Copy to Clipboard.workflow" ~/Library/Services/
 
 There are two options for Finder integration:
 
-**Finder Sync Extension (recommended):** Install the CatboardFinder app, then enable the extension in System Settings → Privacy & Security → Extensions → Finder. Right-click any file to see "Copy to Clipboard" in the context menu. This option uses native Swift with built-in OCR and PDF extraction — no separate CLI tools needed.
+**Finder Sync Extension (recommended):** Install via `brew install --cask VerilyPete/tap/catboard-finder` or from the [releases page](https://github.com/VerilyPete/catboard/releases). Open CatboardFinder from `/Applications`, then enable the extension in System Settings → Privacy & Security → Extensions → Finder. Right-click any file to see "Copy to Clipboard" in the context menu, or add the Catboard button to the Finder toolbar (right-click toolbar → Customize Toolbar). This option uses native Swift with built-in OCR and PDF extraction — no separate CLI tools needed.
 
 **Quick Action (legacy):** After installing the Rust CLI, right-click any file in Finder and look for "Copy to Clipboard" under Quick Actions or Services. This shells out to the `catboard` CLI.
 
