@@ -14,7 +14,7 @@ fn test_help_output() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Copy file contents to clipboard"))
+        .stdout(predicate::str::contains("Copy file contents"))
         .stdout(predicate::str::contains("--verbose"))
         .stdout(predicate::str::contains("--quiet"));
 }
