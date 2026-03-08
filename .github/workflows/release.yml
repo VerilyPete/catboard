@@ -886,6 +886,9 @@ jobs:
                   cp -r "#{pkgshare}/Copy to Clipboard.workflow" ~/Library/Services/
 
                 Then right-click any file in Finder to see "Copy to Clipboard" under Quick Actions.
+
+                For the Finder toolbar button and extension, also install:
+                  brew install --cask VerilyPete/tap/catboard-finder
               EOS
             end
 
@@ -895,10 +898,49 @@ jobs:
           end
           FORMULA
 
+          # Calculate SHA256 of the DMG for the cask
+          DMG="release/CatboardFinder-${VERSION}.dmg"
+          if [ -f "$DMG" ]; then
+            DMG_SHA256=$(sha256sum "$DMG" | cut -d' ' -f1)
+            echo "DMG SHA256: $DMG_SHA256"
+
+            # Create/update the cask
+            mkdir -p Casks
+            cat > Casks/catboard-finder.rb << CASK
+          cask "catboard-finder" do
+            version "${VERSION_NUM}"
+            sha256 "${DMG_SHA256}"
+
+            url "https://github.com/VerilyPete/catboard/releases/download/v#{version}/CatboardFinder-v#{version}.dmg"
+            name "CatboardFinder"
+            desc "Finder extension for copying file contents to clipboard"
+            homepage "https://github.com/VerilyPete/catboard"
+
+            depends_on macos: ">= :sequoia"
+
+            app "CatboardFinder.app"
+
+            caveats <<~EOS
+              After installation, open CatboardFinder from /Applications,
+              then enable the extension in System Settings > Extensions > Finder Extensions.
+
+              You can also add the Catboard button to your Finder toolbar:
+              right-click the toolbar > Customize Toolbar > drag Catboard in.
+
+              For the CLI tools, also install the formula:
+                brew install VerilyPete/tap/catboard
+            EOS
+          end
+          CASK
+          else
+            echo "::warning::DMG not found, skipping cask update"
+          fi
+
           # Commit and push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/catboard.rb
+          git add Casks/catboard-finder.rb 2>/dev/null || true
           git commit -m "Update catboard to ${VERSION}"
           git push
 
