@@ -11,7 +11,8 @@ Like `cat` but for your clipboard - hence **catboard**.
 - OCR images (PNG, JPG, TIFF, etc.) using macOS Vision framework
 - OCR scanned PDFs automatically when no embedded text is found
 - Multi-page PDF OCR with page separators
-- macOS Finder right-click integration via Finder Sync Extension or Quick Action
+- **Directory tree snapshots** for LLM context (`catboard tree`) with `.gitignore` support
+- macOS Finder right-click integration via Finder Sync Extension or Quick Action (files and directories)
 - Binary file detection to prevent clipboard corruption
 - Support for stdin input
 - Multiple file concatenation
@@ -118,28 +119,64 @@ cat README.md | catboard -
 -V, --version    Print version
 ```
 
-### Directory Contents for LLM Context
+### Directory Contents for LLM Context (`catboard tree`)
+
+Generate a markdown snapshot of a directory's contents — ideal for pasting into ChatGPT, Claude, or other LLMs as context.
 
 ```bash
-# Output directory contents as markdown to stdout
+# Output to stdout
 catboard tree src/
 
-# Copy to clipboard (for pasting into ChatGPT, Claude, etc.)
+# Copy to clipboard instead
 catboard tree --copy src/
 
 # Multiple directories
 catboard tree --copy src/ lib/ tests/
 
-# Include hidden files, larger size limit
-catboard tree --hidden --max-total-size 5MB .
+# Include hidden files
+catboard tree --hidden .
+
+# Larger size limits
+catboard tree --max-file-size 1MB --max-total-size 10MB src/
 
 # Ignore .gitignore rules
 catboard tree --no-gitignore src/
+
+# Verbose mode (show stats on stderr)
+catboard tree -v src/
 ```
 
-The output includes a directory tree, file contents with syntax highlighting, and skip notes for binary/large files. Respects `.gitignore` by default.
+#### Tree Options
 
-The `--copy` flag is CLI-only. The Finder extension copies to clipboard automatically when you right-click a directory.
+```
+ARGS:
+  <DIRS>...                    Directories to walk
+
+OPTIONS:
+      --copy                   Copy to clipboard instead of stdout
+      --hidden                 Include hidden files
+      --max-file-size <SIZE>   Maximum size per file [default: 256KB]
+      --max-total-size <SIZE>  Maximum total output size [default: 1MB]
+      --no-gitignore           Don't respect .gitignore rules
+  -v, --verbose                Show stats (files included/skipped/total)
+  -q, --quiet                  Suppress non-error output
+```
+
+Size values accept `B`, `KB`, `MB`, `GB` suffixes (case-insensitive). Plain numbers are treated as bytes.
+
+#### Output Format
+
+The output is structured markdown containing:
+
+1. **Directory tree** — ASCII tree showing the file/folder structure
+2. **File contents** — Each file in a fenced code block with language detection (50+ languages)
+3. **Skip notes** — Entries for binary files, oversized files, symlinks, and permission errors
+
+Files are skipped when they exceed `--max-file-size`, and output is truncated when it exceeds `--max-total-size`. `.gitignore` rules (including nested `.gitignore` files and negation patterns) are respected by default. Common noise directories (`node_modules`, `.git`, `__pycache__`, `target`, etc.) are always excluded.
+
+#### Finder Integration
+
+Right-click any directory in Finder to copy its tree output to the clipboard. The Finder extension uses the same defaults as the CLI (256KB per file, 1MB total, respects `.gitignore`).
 
 ### Examples
 
