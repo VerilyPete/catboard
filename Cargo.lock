@@ -756,15 +756,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inflate"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cdb29978cc5797bd8dcc8e5bf7de604891df2a8dc576973d71a281e916db2ff"
-dependencies = [
- "adler32",
-]
-
-[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1068,9 +1059,9 @@ dependencies = [
 
 [[package]]
 name = "pdf_oxide"
-version = "0.3.13"
+version = "0.3.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eb746722f93727f0f566d2026bc6f91a2ae26475082e9c4ff695cb97f5e53d5"
+checksum = "0cf2f190ea5092e1c45d2bde54573a38c01d3a9d4ae7626fd6cb082bb365e5d4"
 dependencies = [
  "aes",
  "base64",
@@ -1086,7 +1077,6 @@ dependencies = [
  "flate2",
  "image 0.24.9",
  "indexmap",
- "inflate",
  "lazy_static",
  "libflate",
  "log",
@@ -1255,9 +1245,9 @@ checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quick-xml"
-version = "0.31.0"
+version = "0.39.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1004a344b30a54e2ee58d66a71b32d2db2feb0a31f9a2d302bf0536f15de2a33"
+checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
 dependencies = [
  "memchr",
 ]
